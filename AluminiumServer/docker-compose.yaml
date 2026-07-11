@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  mongodb-local:
+    image: mongo:6.0
+    container_name: aluminium-mongodb-dev
+    restart: always
+    ports:
+      - "27017:27017" # Maps the default MongoDB port to localhost
+    environment:
+      - MONGO_INITDB_DATABASE=aluminium_packages # Creates your package database instantly
+    volumes:
+      - mongodb_data:/data/db # Persists your mock packages on your disk local context
+
+volumes:
+  mongodb_data: # Local named volume definition
