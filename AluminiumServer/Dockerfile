@@ -13,4 +13,6 @@ COPY . .
 
 EXPOSE 3000
 
-CMD ["node", "dist/index.js"]
+RUN npx tsc
+
+CMD ["node", "dist/server.js"]
