@@ -3,7 +3,7 @@ FROM node:26-alpine
 
 WORKDIR /app
 
-# Copy package files and install dependencies free bird
+# Copy package files and install dependencies free bird yeah
 COPY package*.json ./
 RUN npm ci
 
