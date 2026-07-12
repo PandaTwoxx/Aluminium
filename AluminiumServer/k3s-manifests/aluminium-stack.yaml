@@ -85,6 +85,7 @@ kind: Service
 metadata:
   name: aluminium-server
 spec:
+  type: ClusterIP  # 👈 This explicitly creates the internal Cluster IP
   ports:
     - port: 3000
       targetPort: 3000
