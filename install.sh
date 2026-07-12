@@ -14,20 +14,37 @@ mkdir -p "$BIN_DIR"
 mkdir -p "$ALUM_DIR/install"
 mkdir -p "$ALUM_DIR/build"
 
-# Navigate to CLI directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLI_DIR="$SCRIPT_DIR/AluminiumCLI"
+# Detect OS and Architecture
+OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+ARCH="$(uname -m)"
 
-if [ ! -d "$CLI_DIR" ]; then
-    echo "Error: AluminiumCLI directory not found at $CLI_DIR"
+if [ "$ARCH" = "x86_64" ]; then
+    ARCH="amd64"
+elif [ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ]; then
+    ARCH="arm64"
+fi
+
+BINARY_NAME=""
+if [ "$OS" = "darwin" ]; then
+    if [ "$ARCH" = "arm64" ]; then
+        BINARY_NAME="aluminium-darwin-arm64"
+    else
+        BINARY_NAME="aluminium-darwin-amd64"
+    fi
+elif [ "$OS" = "linux" ]; then
+    BINARY_NAME="aluminium-linux-amd64"
+else
+    echo "Error: Unsupported operating system: $OS"
     exit 1
 fi
 
-echo "Compiling Go CLI binary..."
-cd "$CLI_DIR"
-go build -o "$BIN_DIR/aluminium" ./cmd/aluminium
+DOWNLOAD_URL="https://github.com/PandaTwoxx/Aluminium/releases/latest/download/${BINARY_NAME}"
 
-echo "Success! Aluminium CLI compiled and installed to: $BIN_DIR/aluminium"
+echo "Downloading $BINARY_NAME from GitHub..."
+curl -L -o "$BIN_DIR/aluminium" "$DOWNLOAD_URL"
+chmod +x "$BIN_DIR/aluminium"
+
+echo "Success! Aluminium CLI installed to: $BIN_DIR/aluminium"
 echo "All application data and binaries now operate out of: $ALUM_DIR"
 
 # Verify if path is in PATH

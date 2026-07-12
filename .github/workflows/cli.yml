@@ -2,6 +2,8 @@ name: Build Aluminium CLI
 
 on:
   push:
+    tags:
+      - 'v*.*.*'     # Triggers a Release when you push a version tag like v2.0.1
     paths:
       - 'AluminiumCLI/**'
     branches:
@@ -11,7 +13,7 @@ on:
       - 'AluminiumCLI/**'
 
 permissions:
-  contents: read
+  contents: write  # Needed to create GitHub Releases and upload assets
 
 jobs:
   build:
@@ -49,3 +51,16 @@ jobs:
         with:
           name: aluminium-cli-binaries
           path: AluminiumCLI/dist/*
+
+      # Only publish a GitHub Release when a version tag was pushed (e.g. v2.0.1)
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Aluminium CLI ${{ github.ref_name }}"
+          body: "Automated release of Aluminium CLI ${{ github.ref_name }}."
+          files: |
+            AluminiumCLI/dist/aluminium-linux-amd64
+            AluminiumCLI/dist/aluminium-darwin-amd64
+            AluminiumCLI/dist/aluminium-darwin-arm64
+            AluminiumCLI/dist/aluminium-windows-amd64.exe
