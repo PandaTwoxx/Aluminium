@@ -12,5 +12,18 @@ services:
     volumes:
       - mongodb_data:/data/db # Persists your mock packages on your disk local context
 
+  app:
+    build:
+      context: ./AluminiumServer
+      dockerfile: Dockerfile
+    container_name: aluminium-server-dev
+    restart: always
+    ports:
+      - "3000:3000" # Maps the server port to localhost
+    environment:
+      - MONGO_URI=mongodb://mongodb-local:27017/aluminium_packages # Connects to the local MongoDB service
+    depends_on:
+      - mongodb-local # Ensures MongoDB starts before the app
+
 volumes:
   mongodb_data: # Local named volume definition
