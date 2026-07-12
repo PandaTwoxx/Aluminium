@@ -16,5 +16,5 @@ cmake --install build
 
 # install script
 ```bash
-/bin/bash -c "$(https://github.com/PandaTwoxx/Aluminium/raw/refs/heads/main/install.sh)"
+/bin/bash -c "$(curl -fsSL https://github.com/PandaTwoxx/Aluminium/raw/refs/heads/main/install.sh)"
 ```
