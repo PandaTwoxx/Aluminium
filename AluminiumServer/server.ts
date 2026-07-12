@@ -13,7 +13,7 @@ import {
   isValidBuildSystem,
 } from './buildValidation.js';
 
-// peak server
+// peak server for aluminium
 
 const app = express();
 app.use(express.json());
