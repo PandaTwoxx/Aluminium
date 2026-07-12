@@ -17,7 +17,7 @@ spec:
       containers:
         - name: aluminium-server
           # The GitHub Actions workflows will automatically replace this tag string with the commit SHA
-          image: ghcr.io/pandatwoxx/aluminium/aluminium-server:20a5436ca06702dd5f0c725c68df1372c9ac95b2
+          image: ghcr.io/pandatwoxx/aluminium/aluminium-server:1bef9e2c95458c5e8004bb1e09d32e5b9cbfda0d
           imagePullPolicy: Always
           ports:
             - containerPort: 3000
