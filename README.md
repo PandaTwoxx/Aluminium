@@ -13,3 +13,8 @@ cmake --build build --parallel
 # 3. Install the project to $HOME/install
 cmake --install build
 ```
+
+# install script
+```bash
+/bin/bash -c "$(https://github.com/PandaTwoxx/Aluminium/raw/refs/heads/main/install.sh)"
+```
