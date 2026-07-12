@@ -1,9 +1,64 @@
+# 1. THE STORAGE RESERVATION (Your docker named volume)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mongodb-data-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 40Gi # 👈 This controls how much space your DB gets!
+---
+# 2. THE MONGODB DATABASE DEPLOYMENT
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongodb-local
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongodb-local
+  template:
+    metadata:
+      labels:
+        app: mongodb-local
+    spec:
+      containers:
+        - name: mongodb
+          image: mongo:6.0
+          ports:
+            - containerPort: 27017
+          env:
+            - name: MONGO_INITDB_DATABASE
+              value: "aluminium_packages"
+          volumeMounts:
+            - name: db-storage
+              mountPath: /data/db # Maps inside the container just like compose
+      volumes:
+        - name: db-storage
+          persistentVolumeClaim:
+            claimName: mongodb-data-pvc # Hooks into the storage defined above
+---
+# 3. THE MONGODB SERVICE (Allows the app to look up "mongodb-local")
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb-local
+spec:
+  ports:
+    - port: 27017
+      targetPort: 27017
+  selector:
+    app: mongodb-local
+---
+# 4. YOUR APPLICATION SERVER DEPLOYMENT
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: aluminium-server
-  labels:
-    app: aluminium-server
 spec:
   replicas: 1
   selector:
@@ -16,8 +71,7 @@ spec:
     spec:
       containers:
         - name: aluminium-server
-          # The GitHub Actions workflows will automatically replace this tag string with the commit SHA
-          image: ghcr.io/pandatwoxx/aluminium/aluminium-server:20a5436ca06702dd5f0c725c68df1372c9ac95b2
+          image: ghcr.io/pandatwoxx/aluminium/aluminium-server:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 3000
@@ -25,6 +79,7 @@ spec:
             - name: MONGO_URI
               value: "mongodb://mongodb-local:27017/aluminium_packages"
 ---
+# 5. YOUR APPLICATION SERVER SERVICE
 apiVersion: v1
 kind: Service
 metadata:
