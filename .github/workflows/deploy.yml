@@ -3,9 +3,13 @@ name: Build and Deploy AluminiumServer
 on:
   push:
     paths:
-      - 'AluminiumServer/**' # Only trigger when files in this directory change
+      - 'AluminiumServer/**' # Stays exact! Only builds when your app code changes
     branches:
       - main
+
+permissions:
+  contents: write
+  packages: write
 
 jobs:
   build-and-push:
@@ -13,6 +17,10 @@ jobs:
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
+        with:
+          # Tells checkout to fetch the entire repository tree, 
+          # bypassing any path-filtering restrictions on the runner's workspace
+          fetch-depth: 0 
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -33,18 +41,28 @@ jobs:
           context: ./AluminiumServer
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: ghcr.io/pandatwoxx/aluminium/aluminium-server:latest,ghcr.io/pandatwoxx/aluminium/aluminium-server:${{ github.sha }}
+          tags: |
+            ghcr.io/pandatwoxx/aluminium/aluminium-server:latest
+            ghcr.io/pandatwoxx/aluminium/aluminium-server:${{ github.sha }}
 
       - name: Update Manifest Tag for Argo CD
         run: |
-            # Updates the image tag to match the current commit SHA inside your k3s folder
-            sed -i "s|image: ghcr.io/pandatwoxx/aluminium/aluminium-server:.*|image: ghcr.io/pandatwoxx/aluminium/aluminium-server:${{ github.sha }}|g" k3s-manifests/aluminium-stack.yaml
+            # Find the file safely across the workspace tree
+            MANIFEST_PATH=$(find . -name "aluminium-stack.yaml" -o -name "aluminium-server.yaml" | head -n 1)
+            
+            if [ -z "$MANIFEST_PATH" ]; then
+              echo "Error: Manifest file could not be found on disk!"
+              exit 1
+            fi
+            
+            echo "Updating image tag inside: $MANIFEST_PATH"
+            sed -i "s|image: ghcr.io/pandatwoxx/aluminium/aluminium-server:.*|image: ghcr.io/pandatwoxx/aluminium/aluminium-server:${{ github.sha }}|g" "$MANIFEST_PATH"
             
             # Configure Git Bot
             git config --global user.name "github-actions[bot]"
             git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
             
-            # Commit and push back to your repo
-            git add k3s-manifests/aluminium-stack.yaml
+            # Commit and push changes back
+            git add "$MANIFEST_PATH"
             git commit -m "deploy: update aluminium-server image tag to ${{ github.sha }} [skip ci]"
             git push
