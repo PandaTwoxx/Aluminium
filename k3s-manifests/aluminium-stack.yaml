@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aluminium-server
+  labels:
+    app: aluminium-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aluminium-server
+  template:
+    metadata:
+      labels:
+        app: aluminium-server
+    spec:
+      containers:
+        - name: aluminium-server
+          # The GitHub Actions workflow will automatically replace this tag string with the commit SHA
+          image: ghcr.io/pandatwoxx/aluminium/aluminium-server:placeholder
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+          env:
+            - name: MONGO_URI
+              value: "mongodb://mongodb-local:27017/aluminium_packages"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aluminium-server
+spec:
+  ports:
+    - port: 3000
+      targetPort: 3000
+  selector:
+    app: aluminium-server
