@@ -1,4 +1,4 @@
-// main.go
+// main.goo
 package main
 
 import (
