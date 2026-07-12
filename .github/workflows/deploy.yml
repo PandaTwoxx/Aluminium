@@ -29,4 +29,4 @@ jobs:
         with:
           context: ./AluminiumServer
           push: true
-          tags: ghcr.io/${{ github.repository }}/aluminium-server:latest,ghcr.io/${{ github.repository }}/aluminium-server:${{ github.sha }}
+          tags: ghcr.io/pandatwoxx/aluminium/aluminium-server:latest,ghcr.io/pandatwoxx/aluminium/aluminium-server:${{ github.sha }}
