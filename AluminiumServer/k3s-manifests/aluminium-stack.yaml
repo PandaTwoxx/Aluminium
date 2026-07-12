@@ -9,7 +9,7 @@ spec:
   storageClassName: local-path
   resources:
     requests:
-      storage: 40Gi # 👈 This controls how much space your DB gets!
+      storage: 40Gi # 👈 This controls how mu ch space your DB gets!
 ---
 # 2. THE MONGODB DATABASE DEPLOYMENT
 apiVersion: apps/v1
