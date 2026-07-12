@@ -1,8 +1,17 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
 import crypto from 'crypto';
+import bcrypt from 'bcrypt';
 import multer from 'multer';
 import { MongoClient, GridFSBucket, ObjectId } from 'mongodb';
 import { Readable } from 'stream';
+import {
+  validatePackageName,
+  validatePackageVersion,
+  validateBuildFlags,
+  validateSourceDir,
+  validateCustomScript,
+  isValidBuildSystem,
+} from './buildValidation.js';
 
 const app = express();
 app.use(express.json());
@@ -18,18 +27,19 @@ interface Package {
   _id?: ObjectId;
   name: string;
   version: string;
-  buildSystem?: string;
-  dependacies?: string[];
+  buildSystem: 'cmake' | 'make' | 'meson' | 'custom' | 'none';
+  dependencies?: string[];
   prebuiltBinaries?: string[];
-  customBuildSystem?: CustomBuildSystem;
+  buildSetup?: BuildSetup;
   owner: ObjectId;
   uploadedAt: Date;
 }
 
-interface CustomBuildSystem {
-  customBuildScript: string;
-  customInstallScript: string;
-  customUninstallScript: string;
+interface BuildSetup {
+  buildScript: string;
+  installScript: string;
+  uninstallScript: string;
+  sourceCodeUrl?: string;
 }
 
 interface User {
@@ -44,12 +54,23 @@ interface User {
 
 interface Token {
   hashedValue: string;
+  first8Chars: string; // For easier identification
   createdAt: Date;
   scopes: string[];
   owner: ObjectId;
 }
 
 const DB_NAME = process.env.DB_NAME || 'aluminium';
+
+/**
+ * Validates permission by evaluating both user and token capabilities.
+ * Supports hierarchical fallback where 'admin' bypasses standard scope requirements.
+ */
+function hasScope(userScopes: string[], tokenScopes: string[], requiredScope: string): boolean {
+  const hasUserScope = userScopes.includes(requiredScope) || userScopes.includes('admin');
+  const hasTokenScope = tokenScopes.includes(requiredScope) || tokenScopes.includes('admin');
+  return hasUserScope && hasTokenScope;
+}
 
 async function initDB() {
     try {
@@ -69,8 +90,8 @@ async function initDB() {
 }
 
 app.get('/', async (req, res) => {
-  //res.send('Hello, Aluminium Server!');
-  res.send(`\nWe have files: ${await bucket.find().toArray().then(files => files.map(file => file.filename).join(", "))}`);
+  const files = await bucket.find().limit(10).toArray();
+  res.send(`\nWe have files: ${files.map(file => file.filename).join(", ")}`);
 });
 
 app.post('/api/createUser', async (req: Request, res: Response, next: NextFunction): Promise<any> => {
@@ -80,13 +101,13 @@ app.post('/api/createUser', async (req: Request, res: Response, next: NextFuncti
   }
 
   try {
-    const passwordHash = crypto.createHash('sha256').update(password).digest('hex');
+    const passwordHash = await bcrypt.hash(password, 10);
     const newUser: User = {
       username,
       passwordHash,
       email,
       tokens: [],
-      scopes: ['read'], // Default scopes
+      scopes: ['read'], 
       createdAt: new Date(),
     };
     const users = client.db(DB_NAME).collection<User>('users');
@@ -106,7 +127,7 @@ app.post('/api/generateToken', async (req: Request, res: Response, next: NextFun
 
   for (const scope of scopesArray) {
     if (!['read', 'write', 'admin', 'dev'].includes(scope)) {
-      return res.status(400).json({ error: `Invalid scope: ${scope}. Allowed scopes are 'read', 'write', 'admin'.` });
+      return res.status(400).json({ error: `Invalid scope: ${scope}. Allowed scopes are 'read', 'write', 'admin', 'dev'.` });
     }
   }
 
@@ -116,14 +137,17 @@ app.post('/api/generateToken', async (req: Request, res: Response, next: NextFun
     if (!user) {
       return res.status(404).json({ error: 'User not found.' });
     }
+
+    // Admins can mint tokens for any scope they desire
+    const isAdmin = user.scopes.includes('admin');
     for (const scope of scopesArray) {
-      if (user.scopes.indexOf(scope) === -1) {
+      if (!isAdmin && !user.scopes.includes(scope)) {
         return res.status(403).json({ error: `User does not have the required scope: ${scope}.` });
       }
     }
 
-    const passwordHash = crypto.createHash('sha256').update(password).digest('hex');
-    if (user.passwordHash !== passwordHash) {
+    const isMatch = await bcrypt.compare(password, user.passwordHash);
+    if (!isMatch) {
       return res.status(401).json({ error: 'Invalid credentials.' });
     }
 
@@ -132,6 +156,7 @@ app.post('/api/generateToken', async (req: Request, res: Response, next: NextFun
 
     const newToken: Token = {
       hashedValue,
+      first8Chars: tokenValue.substring(0, 8), // Store first 8 chars for easier identification
       createdAt: new Date(),
       scopes: scopesArray,
       owner: user._id!,
@@ -141,6 +166,31 @@ app.post('/api/generateToken', async (req: Request, res: Response, next: NextFun
 
     return res.status(201).json({ token: tokenValue, message: 'Token generated successfully.' });
   } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/listTokens', async (req: Request, res: Response, next: NextFunction): Promise<any> => {
+  const authHeader = req.headers['authorization'];
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Malformed or missing authorization header.' });
+  }
+  const tokenValue = authHeader.substring(7);
+  if (!tokenValue) {
+    return res.status(400).json({ error: 'Missing authorization token.' });
+  }
+  try{
+    const hashedValue = crypto.createHash('sha256').update(tokenValue).digest('hex');
+    const users = client.db(DB_NAME).collection<User>('users');
+
+    const user = await users.findOne({ 'tokens.hashedValue': hashedValue });
+    if (!user) {
+      return res.status(404).json({ error: 'Token not found or invalid.' });
+    }
+
+    return res.status(200).json({ tokens: user.tokens.map(t => ({ first8Chars: t.first8Chars, createdAt: t.createdAt, scopes: t.scopes })) });
+  }
+  catch (error) {
     next(error);
   }
 });
@@ -160,8 +210,8 @@ app.post('/api/revokeToken', async (req: Request, res: Response, next: NextFunct
       return res.status(404).json({ error: 'Token not found or invalid.' });
     }
 
-    const passwordHash = crypto.createHash('sha256').update(password).digest('hex');
-    if (user.passwordHash !== passwordHash) {
+    const isMatch = await bcrypt.compare(password, user.passwordHash);
+    if (!isMatch) {
       return res.status(401).json({ error: 'Invalid credentials.' });
     }
 
@@ -191,21 +241,26 @@ app.post('/api/validateToken', async (req: Request, res: Response, next: NextFun
       return res.status(404).json({ error: 'Token not found or invalid.' });
     }
 
-    return res.status(200).json({ message: 'Token is valid.', userId: user._id, scopes: user.tokens.find(t => t.hashedValue === hashedValue)?.scopes });
+    const activeToken = user.tokens.find(t => t.hashedValue === hashedValue);
+    return res.status(200).json({ message: 'Token is valid.', userId: user._id, scopes: activeToken?.scopes });
   } catch (error) {
     next(error);
   }
 });
 
 app.post('/api/grantScope', async (req: Request, res: Response, next: NextFunction): Promise<any> => {
-  const tokenValue = req.headers['authorization']?.split(' ')[1];
+  const authHeader = req.headers['authorization'];
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Malformed or missing authorization header.' });
+  }
+  const tokenValue = authHeader.substring(7);
   const { scope, username } = req.body;
   if (!tokenValue || !scope || !username) {
     return res.status(400).json({ error: 'Missing required fields for granting scope.' });
   }
 
-  if (!['read', 'write', 'admin'].includes(scope)) {
-    return res.status(400).json({ error: `Invalid scope: ${scope}. Allowed scopes are 'read', 'write', 'admin'.` });
+  if (!['read', 'write', 'admin', 'dev'].includes(scope)) {
+    return res.status(400).json({ error: `Invalid scope: ${scope}. Allowed scopes are 'read', 'write', 'admin', 'dev'.` });
   }
   
   try {
@@ -217,7 +272,8 @@ app.post('/api/grantScope', async (req: Request, res: Response, next: NextFuncti
       return res.status(404).json({ error: 'Token not found or invalid.' });
     }
 
-    if (!requestingUser.scopes.includes('admin')) {
+    const token = requestingUser.tokens.find(t => t.hashedValue === hashedValue);
+    if (!token || !hasScope(requestingUser.scopes, token.scopes, 'admin')) {
       return res.status(403).json({ error: 'Insufficient permissions to grant scopes.' });
     }
 
@@ -242,7 +298,11 @@ app.post('/api/grantScope', async (req: Request, res: Response, next: NextFuncti
 });
 
 app.get('/api/getUserScopes', async (req: Request, res: Response, next: NextFunction): Promise<any> => {
-  const tokenValue = req.headers['authorization']?.split(' ')[1];
+  const authHeader = req.headers['authorization'];
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Malformed or missing authorization header.' });
+  }
+  const tokenValue = authHeader.substring(7);
   if (!tokenValue) {
     return res.status(400).json({ error: 'Missing authorization token.' });
   }
@@ -256,19 +316,18 @@ app.get('/api/getUserScopes', async (req: Request, res: Response, next: NextFunc
       return res.status(404).json({ error: 'Token not found or invalid.' });
     }
 
-    const token = user.tokens.find(t => t.hashedValue === hashedValue);
-    if (!token) {
-      return res.status(404).json({ error: 'Token not found.' });
-    }
-
-    return res.status(200).json({ scopes: token.scopes });
+    return res.status(200).json({ scopes: user.scopes });
   } catch (error) {
     next(error);
   }
 });
 
 app.get('/api/getTokenScopes', async (req: Request, res: Response, next: NextFunction): Promise<any> => {
-  const tokenValue = req.headers['authorization']?.split(' ')[1];
+  const authHeader = req.headers['authorization'];
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Malformed or missing authorization header.' });
+  }
+  const tokenValue = authHeader.substring(7);
   if (!tokenValue) {
     return res.status(400).json({ error: 'Missing authorization token.' });
   }
@@ -293,73 +352,115 @@ app.get('/api/getTokenScopes', async (req: Request, res: Response, next: NextFun
   }
 });
 
-app.post('/api/uploadPrebuilt', upload.single('package'), async (req: Request, res: Response, next: NextFunction): Promise<any> => {
-  const tokenValue = req.headers['authorization']?.split(' ')[1];
+app.post('/api/uploadPrebuilt', async (req: Request, res: Response, next: NextFunction): Promise<any> => {
+  const authHeader = req.headers['authorization'];
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Malformed or missing authorization header.' });
+  }
+  const tokenValue = authHeader.substring(7);
   if (!tokenValue) {
     return res.status(400).json({ error: 'Missing authorization token.' });
   }
-  
   try {
     const hashedValue = crypto.createHash('sha256').update(tokenValue).digest('hex');
     const users = client.db(DB_NAME).collection<User>('users');
     const user = await users.findOne({ 'tokens.hashedValue': hashedValue });
-
     if (!user) {
       return res.status(404).json({ error: 'Token not found or invalid.' });
     }
-    if(user.scopes.indexOf('write') === -1 || user.tokens.find(t => t.hashedValue === hashedValue)?.scopes.indexOf('write') === -1) {
+    const token = user.tokens.find(t => t.hashedValue === hashedValue);
+    if (!token) {
+      return res.status(404).json({ error: 'Token not found.' });
+    }
+
+    // 1. Verify general write permissions (Safe to do early)
+    if (!hasScope(user.scopes, token.scopes, 'write')) {
       return res.status(403).json({ error: 'Insufficient permissions to upload prebuilt binaries.' });
     }
-    const { name, version, packageName } = req.body;
-    const file = req.file;
 
-    if (!name || !version || !file || !packageName) {
-      return res.status(400).json({ error: 'Missing package identifier metadata or binary file payload.' });
-    }
+    // 2. Determine file size limit based on scope hierarchy
+    const isPrivileged = user.scopes.includes('admin') || user.scopes.includes('dev') ||
+                        token.scopes.includes('admin') || token.scopes.includes('dev');
+                        
+    const MAX_FILE_SIZE = isPrivileged ? 2 * 1024 * 1024 * 1024 : 50 * 1024 * 1024; 
 
-    const existingPackage = await client.db(DB_NAME).collection<Package>('packages').findOne({
-      packageName,
-      version
-    });
+    // 3. Initialize dynamic multer instance
+    const dynamicUpload = multer({
+      storage: multer.memoryStorage(),
+      limits: { fileSize: MAX_FILE_SIZE }
+    }).single('package');
 
-    if (!existingPackage) {
-      return res.status(404).json({ error: 'No package matches the provided packageName.' });
-    }
+    // 4. Run the upload handler manually
+    dynamicUpload(req, res, async (err) => {
+      if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({ 
+            error: `File size limit exceeded. Non-admin threshold is ${MAX_FILE_SIZE / (1024 * 1024)}MB.` 
+          });
+        }
+        return res.status(400).json({ error: err.message });
+      } else if (err) {
+        return next(err);
+      }
 
-    const packageUser = await users.findOne({ _id: existingPackage.owner });
-    if (!packageUser) {
-      return res.status(404).json({ error: 'Package owner not found.' });
-    }
-    if (!packageUser._id.equals(user._id) && user.scopes.indexOf('admin') === -1) {
-      return res.status(403).json({ error: 'You do not have permission to upload binaries for this package.' });
-    }
+      // --- CRITICAL CHANGE: Move body-dependent logic INSIDE the callback ---
+      const { name, version, packageName } = req.body;
+      const file = req.file;
 
-    const metadata = { name, version };
-    const bucketFilename = `${name}@${version}.tar.gz`;
-    const uploadStream = bucket.openUploadStream(bucketFilename, { metadata });
+      if (!name || !version || !file || !packageName) {
+        return res.status(400).json({ error: 'Missing package identifier metadata or binary file payload.' });
+      }
 
-    const readableFileStream = new Readable();
-    readableFileStream.push(file.buffer);
-    readableFileStream.push(null);
-
-    readableFileStream.pipe(uploadStream)
-      .on('error', (err) => {
-        console.error('GridFS Upload Error:', err);
-        return res.status(500).json({ error: 'Stream interrupted during database persist operations.' });
-      })
-      .on('finish', () => {
-        return res.status(201).json({ 
-          message: `Package ${name}@${version} for uploaded successfully!`,
-          fileId: uploadStream.id
-        });
+      const existingPackage = await client.db(DB_NAME).collection<Package>('packages').findOne({
+        name: packageName,
+        version
       });
+
+      if (!existingPackage) {
+        return res.status(404).json({ error: 'No package matches the provided packageName.' });
+      }
+
+      const packageUser = await users.findOne({ _id: existingPackage.owner });
+      if (!packageUser) {
+        return res.status(404).json({ error: 'Package owner not found.' });
+      }
+
+      if (!packageUser._id.equals(user._id) && !user.scopes.includes('admin')) {
+        return res.status(403).json({ error: 'You do not have permission to upload binaries for this package.' });
+      }
+
+      // GridFS upload logic stays here...
+      const metadata = { name, version };
+      const bucketFilename = `${name}@${version}.tar.gz`;
+      const uploadStream = bucket.openUploadStream(bucketFilename, { metadata });
+
+      const readableFileStream = new Readable();
+      readableFileStream.push(file.buffer);
+      readableFileStream.push(null);
+
+      readableFileStream.pipe(uploadStream)
+        .on('error', (uploadErr) => {
+          console.error('GridFS Upload Error:', uploadErr);
+          return res.status(500).json({ error: 'Stream interrupted during database persist operations.' });
+        })
+        .on('finish', () => {
+          return res.status(201).json({ 
+            message: `Package ${name}@${version} uploaded successfully!`,
+            fileId: uploadStream.id
+          });
+        });
+    });
   } catch (error) {
     next(error);
   }
 });
 
 app.post('/api/downloadPrebuilt', async (req: Request, res: Response, next: NextFunction): Promise<any> => {
-  const tokenValue = req.headers['authorization']?.split(' ')[1];
+  const authHeader = req.headers['authorization'];
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Malformed or missing authorization header.' });
+  }
+  const tokenValue = authHeader.substring(7);
   if (!tokenValue) {
     return res.status(400).json({ error: 'Missing authorization token.' });
   }
@@ -372,9 +473,12 @@ app.post('/api/downloadPrebuilt', async (req: Request, res: Response, next: Next
     if (!user) {
       return res.status(404).json({ error: 'Token not found or invalid.' });
     }
-    if(user.scopes.indexOf('read') === -1 || user.tokens.find(t => t.hashedValue === hashedValue)?.scopes.indexOf('read') === -1) {
+
+    const token = user.tokens.find(t => t.hashedValue === hashedValue);
+    if (!token || !hasScope(user.scopes, token.scopes, 'read')) {
       return res.status(403).json({ error: 'Insufficient permissions to download prebuilt binaries.' });
     }
+
     const { name, version } = req.body;
     if (!name || !version) {
       return res.status(400).json({ error: 'Missing package identifier metadata.' });
@@ -410,7 +514,11 @@ app.post('/api/downloadPrebuilt', async (req: Request, res: Response, next: Next
 });
 
 app.post('/api/deletePrebuilt', async (req: Request, res: Response, next: NextFunction): Promise<any> => {
-  const tokenValue = req.headers['authorization']?.split(' ')[1];
+  const authHeader = req.headers['authorization'];
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Malformed or missing authorization header.' });
+  }
+  const tokenValue = authHeader.substring(7);
   if (!tokenValue) {
     return res.status(400).json({ error: 'Missing authorization token.' });
   }
@@ -423,9 +531,12 @@ app.post('/api/deletePrebuilt', async (req: Request, res: Response, next: NextFu
     if (!user) {
       return res.status(404).json({ error: 'Token not found or invalid.' });
     }
-    if(user.scopes.indexOf('write') === -1 || user.tokens.find(t => t.hashedValue === hashedValue)?.scopes.indexOf('write') === -1) {
+
+    const token = user.tokens.find(t => t.hashedValue === hashedValue);
+    if (!token || !hasScope(user.scopes, token.scopes, 'write')) {
       return res.status(403).json({ error: 'Insufficient permissions to delete prebuilt binaries.' });
     }
+
     const { name, version } = req.body;
     if (!name || !version) {
       return res.status(400).json({ error: 'Missing package identifier metadata.' });
@@ -441,16 +552,13 @@ app.post('/api/deletePrebuilt', async (req: Request, res: Response, next: NextFu
     }
 
     const packagesCollection = client.db(DB_NAME).collection<Package>('packages');
-    const packageDoc = await packagesCollection.findOne({
-      name,
-      version
-    });
+    const packageDoc = await packagesCollection.findOne({ name, version });
 
     if (!packageDoc) {
       return res.status(404).json({ error: 'Associated package document not found.' });
     }
 
-    if (!packageDoc.owner.equals(user._id) && user.scopes.indexOf('admin') === -1) {
+    if (!packageDoc.owner.equals(user._id) && !user.scopes.includes('admin')) {
       return res.status(403).json({ error: 'You do not have permission to delete binaries for this package.' });
     }
 
@@ -462,7 +570,11 @@ app.post('/api/deletePrebuilt', async (req: Request, res: Response, next: NextFu
 });
 
 app.post('/api/deletePackage', async (req: Request, res: Response, next: NextFunction): Promise<any> => {
-  const tokenValue = req.headers['authorization']?.split(' ')[1];
+  const authHeader = req.headers['authorization'];
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Malformed or missing authorization header.' });
+  }
+  const tokenValue = authHeader.substring(7);
   if (!tokenValue) {
     return res.status(400).json({ error: 'Missing authorization token.' });
   }
@@ -475,7 +587,9 @@ app.post('/api/deletePackage', async (req: Request, res: Response, next: NextFun
     if (!user) {
       return res.status(404).json({ error: 'Token not found or invalid.' });
     }
-    if(user.scopes.indexOf('write') === -1 || user.tokens.find(t => t.hashedValue === hashedValue)?.scopes.indexOf('write') === -1) {
+
+    const token = user.tokens.find(t => t.hashedValue === hashedValue);
+    if (!token || !hasScope(user.scopes, token.scopes, 'write')) {
       return res.status(403).json({ error: 'Insufficient permissions to delete packages.' });
     }
 
@@ -485,21 +599,17 @@ app.post('/api/deletePackage', async (req: Request, res: Response, next: NextFun
     }
 
     const packagesCollection = client.db(DB_NAME).collection<Package>('packages');
-    const packageDoc = await packagesCollection.findOne({
-      name,
-      version
-    });
+    const packageDoc = await packagesCollection.findOne({ name, version });
 
     if (!packageDoc) {
       return res.status(404).json({ error: 'Package not found.' });
     }
 
-    if (!packageDoc.owner.equals(user._id) && user.scopes.indexOf('admin') === -1) {
+    if (!packageDoc.owner.equals(user._id) && !user.scopes.includes('admin')) {
       return res.status(403).json({ error: 'You do not have permission to delete this package.' });
     }
 
     await packagesCollection.deleteOne({ _id: packageDoc._id });
-
     return res.status(200).json({ message: `Package ${name}@${version} deleted successfully.` });
   } catch (error) {
     next(error);
@@ -507,7 +617,11 @@ app.post('/api/deletePackage', async (req: Request, res: Response, next: NextFun
 });
 
 app.post('/api/registerPackage', async (req: Request, res: Response, next: NextFunction): Promise<any> => {
-  const tokenValue = req.headers['authorization']?.split(' ')[1];
+  const authHeader = req.headers['authorization'];
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Malformed or missing authorization header.' });
+  }
+  const tokenValue = authHeader.substring(7);
   if (!tokenValue) {
     return res.status(400).json({ error: 'Missing authorization token.' });
   }
@@ -520,51 +634,102 @@ app.post('/api/registerPackage', async (req: Request, res: Response, next: NextF
     if (!user) {
       return res.status(404).json({ error: 'Token not found or invalid.' });
     }
-    if(user.scopes.indexOf('write') === -1 || user.tokens.find(t => t.hashedValue === hashedValue)?.scopes.indexOf('write') === -1) {
+
+    const token = user.tokens.find(t => t.hashedValue === hashedValue);
+    if (!token || !hasScope(user.scopes, token.scopes, 'write')) {
       return res.status(403).json({ error: 'Insufficient permissions to register packages.' });
     }
 
-    const { name, version, buildSystem, dependacies } = req.body;
+    const { name, version, buildSystem, dependencies } = req.body;
 
-    if(buildSystem && !['cmake', 'make', 'bazel', 'meson', 'custom'].includes(buildSystem)) {
-      return res.status(400).json({ error: 'Invalid build system specified.' });
+    if (!validatePackageName(name) || !validatePackageVersion(version)) {
+      return res.status(400).json({ error: 'Invalid package name or version.' });
     }
 
-    if(buildSystem === 'custom' && user.scopes.indexOf('dev') === -1) {
+    if (!isValidBuildSystem(buildSystem)) {
+      return res.status(400).json({ error: 'Invalid or missing build system specified.' });
+    }
+
+    if (buildSystem === 'custom' && !hasScope(user.scopes, token.scopes, 'dev')) {
       return res.status(403).json({ error: 'Insufficient permissions to register custom build systems.' });
     }
 
-    if(buildSystem === 'custom') {
-      const { customBuildScript, customInstallScript, customUninstallScript } = req.body;
-      if (!customBuildScript || !customInstallScript || !customUninstallScript) {
-        return res.status(400).json({ error: 'Missing required fields for custom build system.' });
-      }
-      const customBuildSystem: CustomBuildSystem = {
-        customBuildScript,
-        customInstallScript,
-        customUninstallScript
-      };
-      const collection = client.db(DB_NAME).collection<Package>('packages');
-      collection.insertOne({
-        name,
-        version,
-        buildSystem,
-        dependacies,
-        owner: user._id!,
-        uploadedAt: new Date(),
-        customBuildSystem
-      })
-    }else{
-      const collection = client.db(DB_NAME).collection<Package>('packages');
-      collection.insertOne({
-        name,
-        version,
-        buildSystem,
-        dependacies,
-        owner: user._id!,
-        uploadedAt: new Date()
-      })
+    if (dependencies !== undefined && !Array.isArray(dependencies)) {
+      return res.status(400).json({ error: 'Dependencies must be an array when provided.' });
     }
+
+    const safeName = name;
+    const packagePayload: Package = {
+      name: safeName,
+      version,
+      buildSystem,
+      dependencies,
+      owner: user._id!,
+      uploadedAt: new Date()
+    };
+
+    if (buildSystem === 'custom') {
+      const { customBuildScript, customInstallScript, customUninstallScript } = req.body;
+      if (!validateCustomScript(customBuildScript) || !validateCustomScript(customInstallScript) || !validateCustomScript(customUninstallScript)) {
+        return res.status(400).json({ error: 'Custom build scripts contain unsafe shell characters or are malformed.' });
+      }
+      packagePayload.buildSetup = {
+        buildScript: customBuildScript,
+        installScript: customInstallScript,
+        uninstallScript: customUninstallScript
+      };
+    } else if (buildSystem === 'none') {
+      packagePayload.buildSystem = buildSystem;
+    } else if (buildSystem === 'cmake') {
+      const { buildFlags, sourceDir } = req.body;
+      if (!validateBuildFlags(buildFlags)) {
+        return res.status(400).json({ error: 'Invalid build flags specified.' });
+      }
+      if (!validateSourceDir(sourceDir)) {
+        return res.status(400).json({ error: 'Invalid source directory specified.' });
+      }
+      const buildFlagsSafe = typeof buildFlags === 'string' ? buildFlags.trim() : '';
+      packagePayload.buildSetup = {
+        sourceCodeUrl: typeof sourceDir === 'string' ? sourceDir : '',
+        buildScript: `cmake -B build ${buildFlagsSafe} -DCMAKE_INSTALL_PREFIX="$HOME/.aluminium/install/${safeName}" -S . && cmake --build build`,
+        installScript: `cmake --install build && cp build/install_manifest.txt "$HOME/.aluminium/install/${safeName}/install_manifest.txt"`,
+        uninstallScript: `xargs rm -f < "$HOME/.aluminium/install/${safeName}/install_manifest.txt" && rm -rf "$HOME/.aluminium/install/${safeName}"`,
+      };
+    } else if (buildSystem === 'make') {
+      const { buildFlags, sourceDir } = req.body;
+      if (!validateBuildFlags(buildFlags)) {
+        return res.status(400).json({ error: 'Invalid build flags specified.' });
+      }
+      if (!validateSourceDir(sourceDir)) {
+        return res.status(400).json({ error: 'Invalid source directory specified.' });
+      }
+      const buildFlagsSafe = typeof buildFlags === 'string' ? buildFlags.trim() : '';
+      packagePayload.buildSetup = {
+        sourceCodeUrl: typeof sourceDir === 'string' ? sourceDir : '',
+        buildScript: `make ${buildFlagsSafe}`,
+        installScript: `make install PREFIX="$HOME/.aluminium/install/${safeName}"`,
+        uninstallScript: `rm -rf "$HOME/.aluminium/install/${safeName}"`,
+      };
+    } else if (buildSystem === 'meson') {
+      const { buildFlags, sourceDir } = req.body;
+      if (!validateBuildFlags(buildFlags)) {
+        return res.status(400).json({ error: 'Invalid build flags specified.' });
+      }
+      if (!validateSourceDir(sourceDir)) {
+        return res.status(400).json({ error: 'Invalid source directory specified.' });
+      }
+      const buildFlagsSafe = typeof buildFlags === 'string' ? buildFlags.trim() : '';
+      packagePayload.buildSetup = {
+        sourceCodeUrl: typeof sourceDir === 'string' ? sourceDir : '',
+        buildScript: `meson setup build ${buildFlagsSafe} --prefix="$HOME/.aluminium/install/${safeName}" && meson compile -C build`,
+        installScript: `meson install -C build`,
+        uninstallScript: `rm -rf "$HOME/.aluminium/install/${safeName}"`,
+      };
+    }
+
+
+    const collection = client.db(DB_NAME).collection<Package>('packages');
+    await collection.insertOne(packagePayload);
 
     return res.status(201).json({ message: 'Package registered successfully.' });
   } catch (error) {
@@ -572,10 +737,82 @@ app.post('/api/registerPackage', async (req: Request, res: Response, next: NextF
   }
 });
 
-    
+app.get('/api/listPackages', async (req: Request, res: Response, next: NextFunction): Promise<any> => {
+  const authHeader = req.headers['authorization'];
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Malformed or missing authorization header.' });
+  }
+  const tokenValue = authHeader.substring(7);
+  if (!tokenValue) {
+    return res.status(400).json({ error: 'Missing authorization token.' });
+  }
 
-initDB().then(() => {
-    app.listen(port, () => {
-        console.log(`Server is running on http://localhost:${port}`);
-    });
+  try {
+    const hashedValue = crypto.createHash('sha256').update(tokenValue).digest('hex');
+    const users = client.db(DB_NAME).collection<User>('users');
+    const user = await users.findOne({ 'tokens.hashedValue': hashedValue });
+
+    if (!user) {
+      return res.status(404).json({ error: 'Token not found or invalid.' });
+    }
+
+    const token = user.tokens.find(t => t.hashedValue === hashedValue);
+    if (!token || !hasScope(user.scopes, token.scopes, 'read')) {
+      return res.status(403).json({ error: 'Insufficient permissions to list packages.' });
+    }
+
+    const collection = client.db(DB_NAME).collection<Package>('packages');
+    const packages = await collection.find().toArray();
+
+    return res.status(200).json({ packages });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/getPackage', async (req: Request, res: Response, next: NextFunction): Promise<any> => {
+  const authHeader = req.headers['authorization'];
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Malformed or missing authorization header.' });
+  }
+  const tokenValue = authHeader.substring(7);
+  if (!tokenValue) {
+    return res.status(400).json({ error: 'Missing authorization token.' });
+  }
+
+  try {
+    const hashedValue = crypto.createHash('sha256').update(tokenValue).digest('hex');
+    const users = client.db(DB_NAME).collection<User>('users');
+    const user = await users.findOne({ 'tokens.hashedValue': hashedValue });
+
+    if (!user) {
+      return res.status(404).json({ error: 'Token not found or invalid.' });
+    }
+
+    const token = user.tokens.find(t => t.hashedValue === hashedValue);
+    if (!token || !hasScope(user.scopes, token.scopes, 'read')) {
+      return res.status(403).json({ error: 'Insufficient permissions to retrieve package details.' });
+    }
+
+    const { name, version } = req.body;
+    if (!name || !version) {
+      return res.status(400).json({ error: 'Missing package identifier metadata.' });
+    }
+
+    const collection = client.db(DB_NAME).collection<Package>('packages');
+    const packageDoc = await collection.findOne({ name: String(name), version: String(version) });
+
+    if (!packageDoc) {
+      return res.status(404).json({ error: 'Package not found.' });
+    }
+
+    return res.status(200).json({ package: packageDoc });
+  } catch (error) {
+    next(error);
+  }
+});
+
+await initDB();
+app.listen(port, () => {
+    console.log(`Server is running on http://localhost:${port}`);
 });
