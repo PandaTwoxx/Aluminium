@@ -34,3 +34,17 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ghcr.io/pandatwoxx/aluminium/aluminium-server:latest,ghcr.io/pandatwoxx/aluminium/aluminium-server:${{ github.sha }}
+
+      - name: Update Manifest Tag for Argo CD
+        run: |
+            # Updates the image tag to match the current commit SHA inside your k3s folder
+            sed -i "s|image: ghcr.io/pandatwoxx/aluminium/aluminium-server:.*|image: ghcr.io/pandatwoxx/aluminium/aluminium-server:${{ github.sha }}|g" k3s-manifests/aluminium-stack.yaml
+            
+            # Configure Git Bot
+            git config --global user.name "github-actions[bot]"
+            git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            
+            # Commit and push back to your repo
+            git add k3s-manifests/aluminium-stack.yaml
+            git commit -m "deploy: update aluminium-server image tag to ${{ github.sha }} [skip ci]"
+            git push
