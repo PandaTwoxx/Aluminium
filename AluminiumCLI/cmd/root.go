@@ -12,6 +12,10 @@ var rootCmd = &cobra.Command{
 	Short: "Aluminium is a CLI tool for downloading system packages.",
 	Long:  `Aluminium is a powerful command-line interface (CLI) tool that helps you download and manage system packages efficiently.`,
 	Run: func(cmd *cobra.Command, args []string) {
+		if val, _ := cmd.Flags().GetBool("version"); val {
+			fmt.Println("Aluminium version 2.0.0")
+			return
+		}
 		cmd.Help()
 	},
 }

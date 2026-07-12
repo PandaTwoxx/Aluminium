@@ -1,0 +1,51 @@
+name: Build Aluminium CLI
+
+on:
+  push:
+    paths:
+      - 'AluminiumCLI/**'
+    branches:
+      - main
+  pull_request:
+    paths:
+      - 'AluminiumCLI/**'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Compile CLI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'AluminiumCLI/go.mod'
+          cache-dependency-path: 'AluminiumCLI/go.sum'
+
+      - name: Build CLI for Multiple Platforms
+        run: |
+          cd AluminiumCLI
+          mkdir -p dist
+          
+          # Linux amd64
+          GOOS=linux GOARCH=amd64 go build -o dist/aluminium-linux-amd64 ./cmd/aluminium
+          
+          # macOS amd64 (Intel)
+          GOOS=darwin GOARCH=amd64 go build -o dist/aluminium-darwin-amd64 ./cmd/aluminium
+          
+          # macOS arm64 (Apple Silicon)
+          GOOS=darwin GOARCH=arm64 go build -o dist/aluminium-darwin-arm64 ./cmd/aluminium
+          
+          # Windows amd64
+          GOOS=windows GOARCH=amd64 go build -o dist/aluminium-windows-amd64.exe ./cmd/aluminium
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: aluminium-cli-binaries
+          path: AluminiumCLI/dist/*
