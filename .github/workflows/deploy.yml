@@ -47,13 +47,8 @@ jobs:
 
       - name: Update Manifest Tag for Argo CD
         run: |
-            # Find the file safely across the workspace tree
-            MANIFEST_PATH=$(find . -name "aluminium-stack.yaml" -o -name "aluminium-server.yaml" | head -n 1)
-            
-            if [ -z "$MANIFEST_PATH" ]; then
-              echo "Error: Manifest file could not be found on disk!"
-              exit 1
-            fi
+            # Target the exact path we discovered in the AluminiumServer folder
+            MANIFEST_PATH="AluminiumServer/k3s-manifests/aluminium-stack.yaml"
             
             echo "Updating image tag inside: $MANIFEST_PATH"
             sed -i "s|image: ghcr.io/pandatwoxx/aluminium/aluminium-server:.*|image: ghcr.io/pandatwoxx/aluminium/aluminium-server:${{ github.sha }}|g" "$MANIFEST_PATH"
@@ -62,7 +57,7 @@ jobs:
             git config --global user.name "github-actions[bot]"
             git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
             
-            # Commit and push changes back
+            # Commit and push changes back to the main branch
             git add "$MANIFEST_PATH"
             git commit -m "deploy: update aluminium-server image tag to ${{ github.sha }} [skip ci]"
             git push
