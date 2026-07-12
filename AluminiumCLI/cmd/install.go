@@ -68,6 +68,7 @@ var installCmd = &cobra.Command{
 		}
 
 		fmt.Println("\nAll requested packages installed successfully.")
+		install.EnsureShellSourced()
 	},
 }
 
