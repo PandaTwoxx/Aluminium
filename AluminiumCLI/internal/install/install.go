@@ -2,7 +2,6 @@ package install
 
 import (
 	"archive/tar"
-	"bufio"
 	"compress/gzip"
 	"encoding/json"
 	"errors"
@@ -16,6 +15,7 @@ import (
 	"github.com/PandaTwoxx/Aluminium/internal/client"
 	"github.com/PandaTwoxx/Aluminium/internal/config"
 	"github.com/PandaTwoxx/Aluminium/internal/graph"
+	"github.com/PandaTwoxx/Aluminium/internal/prompt"
 )
 
 type InstalledPackage struct {
@@ -182,15 +182,12 @@ func EnsureShellSourced() {
 	fmt.Println("  Run `source " + rcFile + "` or open a new terminal to apply changes.")
 }
 
-func askYesNo(prompt string) (bool, error) {
-	fmt.Printf("%s [y/N]: ", prompt)
-	reader := bufio.NewReader(os.Stdin)
-	input, err := reader.ReadString('\n')
-	if err != nil {
-		return false, err
+func confirmBuildFromSource(cfg *config.Config, pkgName string) (bool, error) {
+	msg := fmt.Sprintf("Prebuilt binary for package %s not found. Do you want to build it from source?", pkgName)
+	if prompt.FromConfig(cfg) {
+		return prompt.Confirm(msg, false)
 	}
-	input = strings.TrimSpace(strings.ToLower(input))
-	return input == "y" || input == "yes", nil
+	return prompt.SimpleConfirm(msg, true)
 }
 
 func checkBuildSystem(buildSystem string) error {
@@ -316,7 +313,7 @@ func InstallSinglePackage(node *graph.Node, api *client.APIClient, cfg *config.C
 		return fmt.Errorf("no prebuilt binary or build script available for package %s", node.Name)
 	}
 
-	proceed, askErr := askYesNo(fmt.Sprintf("Prebuilt binary for package %s not found. Do you want to build it from source?", node.Name))
+	proceed, askErr := confirmBuildFromSource(cfg, node.Name)
 	if askErr != nil {
 		return askErr
 	}

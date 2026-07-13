@@ -133,11 +133,39 @@ var configSetTokenCmd = &cobra.Command{
 	},
 }
 
+var configSetInteractiveCmd = &cobra.Command{
+	Use:   "set-interactive [true|false]",
+	Short: "Enable or disable interactive mode for the CLI",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		cfg, err := config.LoadConfig()
+		if err != nil {
+			fmt.Printf("Error loading config: %v\n", err)
+			os.Exit(1)
+		}
+		switch args[0] {
+		case "true", "1", "yes", "on":
+			cfg.Interactive = true
+		case "false", "0", "no", "off":
+			cfg.Interactive = false
+		default:
+			fmt.Printf("Invalid value %q: use true or false\n", args[0])
+			os.Exit(1)
+		}
+		if err := config.SaveConfig(cfg); err != nil {
+			fmt.Printf("Error saving config: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Interactive mode set to: %v\n", cfg.Interactive)
+	},
+}
+
 func init() {
 	configCmd.AddCommand(configShowCmd)
 	configCmd.AddCommand(configSetDefaultCmd)
 	configCmd.AddCommand(configAddServerCmd)
 	configCmd.AddCommand(configRemoveServerCmd)
 	configCmd.AddCommand(configSetTokenCmd)
+	configCmd.AddCommand(configSetInteractiveCmd)
 	rootCmd.AddCommand(configCmd)
 }

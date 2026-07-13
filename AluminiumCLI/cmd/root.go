@@ -29,4 +29,6 @@ func Execute() {
 
 func init() {
 	rootCmd.Flags().BoolP("version", "v", false, "Print version number")
-} //r
+	rootCmd.PersistentFlags().Bool("interactive", false, "Force interactive mode for this command")
+	rootCmd.PersistentFlags().Bool("no-interactive", false, "Disable interactive mode for this command")
+}

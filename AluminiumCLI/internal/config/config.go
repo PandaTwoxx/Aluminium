@@ -17,6 +17,7 @@ type Config struct {
 	DefaultServer string                  `json:"default_server"`
 	SearchServers []string                `json:"search_servers"`
 	Servers       map[string]ServerConfig `json:"servers"`
+	Interactive   bool                    `json:"interactive,omitempty"`
 }
 
 // GetConfigDir returns the path to the configuration directory: ~/.aluminium/

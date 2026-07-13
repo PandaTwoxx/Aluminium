@@ -8,6 +8,8 @@ import (
 	"text/tabwriter"
 
 	"github.com/PandaTwoxx/Aluminium/internal/client"
+	"github.com/PandaTwoxx/Aluminium/internal/config"
+	"github.com/PandaTwoxx/Aluminium/internal/prompt"
 	"github.com/spf13/cobra"
 )
 
@@ -34,6 +36,42 @@ var packageRegisterCmd = &cobra.Command{
 	Use:   "register",
 	Short: "Register a package on the server",
 	Run: func(cmd *cobra.Command, args []string) {
+		cfg, err := config.LoadConfig()
+		if err != nil {
+			fmt.Printf("Error loading config: %v\n", err)
+			os.Exit(1)
+		}
+
+		if prompt.IsInteractive(cmd, cfg) {
+			input, err := prompt.PackageRegister(prompt.PackageRegisterInput{
+				Name:                  pkgNameFlag,
+				Version:               pkgVersionFlag,
+				BuildSystem:           pkgBuildSystemFlag,
+				SourceDir:             pkgSourceDirFlag,
+				BuildFlags:            pkgBuildFlagsFlag,
+				Dependencies:          pkgDependenciesFlag,
+				CustomBuildScript:     pkgCustomBuildFlag,
+				CustomInstallScript:   pkgCustomInstallFlag,
+				CustomUninstallScript: pkgCustomUninstallFlag,
+			})
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+			pkgNameFlag = input.Name
+			pkgVersionFlag = input.Version
+			pkgBuildSystemFlag = input.BuildSystem
+			pkgSourceDirFlag = input.SourceDir
+			pkgBuildFlagsFlag = input.BuildFlags
+			pkgDependenciesFlag = input.Dependencies
+			pkgCustomBuildFlag = input.CustomBuildScript
+			pkgCustomInstallFlag = input.CustomInstallScript
+			pkgCustomUninstallFlag = input.CustomUninstallScript
+		} else if pkgNameFlag == "" || pkgVersionFlag == "" {
+			fmt.Println("Error: --name and --version are required (or enable interactive mode with `aluminium config set-interactive true`)")
+			os.Exit(1)
+		}
+
 		server, err := getServerURL(cmd)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
@@ -276,9 +314,6 @@ func init() {
 	packageRegisterCmd.Flags().StringVar(&pkgCustomUninstallFlag, "custom-uninstall", "", "Shell script content to uninstall (for custom build system)")
 	packageRegisterCmd.Flags().StringVar(&pkgBuildFlagsFlag, "build-flags", "", "Build flags/arguments passed to setup (for cmake, make, meson)")
 	packageRegisterCmd.Flags().StringVar(&pkgSourceDirFlag, "source-dir", "", "Relative path or git URL pointing to package sources")
-	_ = packageRegisterCmd.MarkFlagRequired("name")
-	_ = packageRegisterCmd.MarkFlagRequired("version")
-
 	packageCmd.AddCommand(packageRegisterCmd)
 
 	// Get details flags
