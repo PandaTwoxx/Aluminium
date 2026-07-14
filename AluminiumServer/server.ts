@@ -125,7 +125,11 @@ app.post('/api/generateToken', async (req: Request, res: Response, next: NextFun
   if (!username || !password) {
     return res.status(400).json({ error: 'Missing required fields for token generation.' });
   }
-  const scopesArray = scopes ? (Array.isArray(scopes) ? scopes : [scopes]) : [];
+  const scopesArray = Array.isArray(scopes)
+    ? scopes.filter((scope): scope is string => typeof scope === 'string' && scope.trim().length > 0)
+    : typeof scopes === 'string' && scopes.trim().length > 0
+      ? [scopes.trim()]
+      : [];
 
   try {
     const users = client.db(DB_NAME).collection<User>('users');

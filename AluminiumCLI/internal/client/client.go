@@ -120,10 +120,18 @@ type GenerateTokenResponse struct {
 }
 
 func (c *APIClient) GenerateToken(server, username, password string, scopes []string) (string, error) {
+	normalizedScopes := make([]string, 0, len(scopes))
+	for _, scope := range scopes {
+		scope = strings.TrimSpace(scope)
+		if scope != "" {
+			normalizedScopes = append(normalizedScopes, scope)
+		}
+	}
+
 	payload := map[string]interface{}{
 		"username": username,
 		"password": password,
-		"scopes":   scopes,
+		"scopes":   normalizedScopes,
 	}
 	resBytes, err := c.do("POST", server, "/api/generateToken", payload, "")
 	if err != nil {
