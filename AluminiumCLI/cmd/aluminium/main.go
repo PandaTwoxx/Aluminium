@@ -2,7 +2,7 @@
 package main
 
 import (
-	// Your project's core command package PLEASE
+	// Your project's core command package
 	"github.com/PandaTwoxx/Aluminium/cmd" 
 )
 
