@@ -122,16 +122,10 @@ app.post('/api/createUser', async (req: Request, res: Response, next: NextFuncti
 
 app.post('/api/generateToken', async (req: Request, res: Response, next: NextFunction): Promise<any> => {
   const { username, password, scopes } = req.body;
-  if (!username || !password || !scopes) {
+  if (!username || !password) {
     return res.status(400).json({ error: 'Missing required fields for token generation.' });
   }
-  const scopesArray = Array.isArray(scopes) ? scopes : [scopes];
-
-  for (const scope of scopesArray) {
-    if (!['read', 'write', 'admin', 'dev'].includes(scope)) {
-      return res.status(400).json({ error: `Invalid scope: ${scope}. Allowed scopes are 'read', 'write', 'admin', 'dev'.` });
-    }
-  }
+  const scopesArray = scopes ? (Array.isArray(scopes) ? scopes : [scopes]) : [];
 
   try {
     const users = client.db(DB_NAME).collection<User>('users');
@@ -140,9 +134,17 @@ app.post('/api/generateToken', async (req: Request, res: Response, next: NextFun
       return res.status(404).json({ error: 'User not found.' });
     }
 
+    const finalScopes = scopesArray.length > 0 ? scopesArray : user.scopes;
+
+    for (const scope of finalScopes) {
+      if (!['read', 'write', 'admin', 'dev'].includes(scope)) {
+        return res.status(400).json({ error: `Invalid scope: ${scope}. Allowed scopes are 'read', 'write', 'admin', 'dev'.` });
+      }
+    }
+
     // Admins can mint tokens for any scope they desire
     const isAdmin = user.scopes.includes('admin');
-    for (const scope of scopesArray) {
+    for (const scope of finalScopes) {
       if (!isAdmin && !user.scopes.includes(scope)) {
         return res.status(403).json({ error: `User does not have the required scope: ${scope}.` });
       }
@@ -160,7 +162,7 @@ app.post('/api/generateToken', async (req: Request, res: Response, next: NextFun
       hashedValue,
       first8Chars: tokenValue.substring(0, 8), // Store first 8 chars for easier identification
       createdAt: new Date(),
-      scopes: scopesArray,
+      scopes: finalScopes,
       owner: user._id!,
     };
 

@@ -104,12 +104,35 @@ var loginCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		if len(scopesFlag) == 0 {
-			scopesFlag = []string{"read", "write"}
+		api := client.NewAPIClient()
+
+		var selectedScopes []string
+		if prompt.IsInteractive(cmd, cfg) {
+			// Generate temporary token to fetch user scopes
+			tempToken, err := api.GenerateToken(server, usernameFlag, passwordFlag, nil)
+			if err != nil {
+				color.Red("Login failed: %v\n", err)
+				os.Exit(1)
+			}
+			userScopes, err := api.GetTokenScopes(server, tempToken)
+			if err != nil {
+				_ = api.RevokeToken(server, tempToken, passwordFlag)
+				color.Red("Failed to fetch user scopes: %v\n", err)
+				os.Exit(1)
+			}
+			_ = api.RevokeToken(server, tempToken, passwordFlag)
+
+			chosen, err := prompt.ChooseScopes(userScopes)
+			if err != nil {
+				color.Red("Error: %v\n", err)
+				os.Exit(1)
+			}
+			selectedScopes = chosen
+		} else {
+			selectedScopes = scopesFlag
 		}
 
-		api := client.NewAPIClient()
-		token, err := api.GenerateToken(server, usernameFlag, passwordFlag, scopesFlag)
+		token, err := api.GenerateToken(server, usernameFlag, passwordFlag, selectedScopes)
 		if err != nil {
 			color.Red("Login failed: %v\n", err)
 			os.Exit(1)
@@ -134,6 +157,76 @@ var loginCmd = &cobra.Command{
 		}
 
 		color.Green("Logged in successfully. Token generated and saved for server %s\n", server)
+	},
+}
+
+var tokenCreateCmd = &cobra.Command{
+	Use:   "create",
+	Short: "Create a new authentication token",
+	Run: func(cmd *cobra.Command, args []string) {
+		cfg, _ := config.LoadConfig()
+		if prompt.IsInteractive(cmd, cfg) {
+			input, err := prompt.Login(prompt.LoginInput{
+				Username: usernameFlag,
+				Password: passwordFlag,
+			})
+			if err != nil {
+				color.Red("Error: %v\n", err)
+				os.Exit(1)
+			}
+			usernameFlag = input.Username
+			passwordFlag = input.Password
+		} else {
+			var missing []string
+			if usernameFlag == "" { missing = append(missing, "username") }
+			if passwordFlag == "" { missing = append(missing, "password") }
+			if len(missing) > 0 {
+				color.Red("Error: required flag(s) %q not set\n", missing)
+				os.Exit(1)
+			}
+		}
+
+		server, err := getServerURL(cmd)
+		if err != nil {
+			color.Red("Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		api := client.NewAPIClient()
+
+		var selectedScopes []string
+		if prompt.IsInteractive(cmd, cfg) {
+			// Generate temporary token to fetch user scopes
+			tempToken, err := api.GenerateToken(server, usernameFlag, passwordFlag, nil)
+			if err != nil {
+				color.Red("Login failed: %v\n", err)
+				os.Exit(1)
+			}
+			userScopes, err := api.GetTokenScopes(server, tempToken)
+			if err != nil {
+				_ = api.RevokeToken(server, tempToken, passwordFlag)
+				color.Red("Failed to fetch user scopes: %v\n", err)
+				os.Exit(1)
+			}
+			_ = api.RevokeToken(server, tempToken, passwordFlag)
+
+			chosen, err := prompt.ChooseScopes(userScopes)
+			if err != nil {
+				color.Red("Error: %v\n", err)
+				os.Exit(1)
+			}
+			selectedScopes = chosen
+		} else {
+			selectedScopes = scopesFlag
+		}
+
+		token, err := api.GenerateToken(server, usernameFlag, passwordFlag, selectedScopes)
+		if err != nil {
+			color.Red("Failed to create token: %v\n", err)
+			os.Exit(1)
+		}
+
+		color.Green("Token generated successfully: %s\n", token)
 	},
 }
 
@@ -415,6 +508,12 @@ func init() {
 	tokenCmd.AddCommand(tokenListCmd)
 	tokenCmd.AddCommand(tokenRevokeCmd)
 	tokenCmd.AddCommand(tokenValidateCmd)
+	tokenCmd.AddCommand(tokenCreateCmd)
+
+	// Token Create flags
+	tokenCreateCmd.Flags().StringVarP(&usernameFlag, "username", "u", "", "Username")
+	tokenCreateCmd.Flags().StringVarP(&passwordFlag, "password", "p", "", "Password")
+	tokenCreateCmd.Flags().StringSliceVar(&scopesFlag, "scopes", []string{}, "Comma-separated list of scopes to request (e.g. read,write)")
 
 	// Scope grant flags
 	scopeGrantCmd.Flags().StringVarP(&usernameFlag, "username", "u", "", "Username of the target user")

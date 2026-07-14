@@ -211,3 +211,50 @@ func ScopeGrant(defaults ScopeGrantInput) (*ScopeGrantInput, error) {
 
 	return &result, nil
 }
+
+func ChooseScopes(userScopes []string) ([]string, error) {
+	allScopes := []string{"read", "write", "dev", "admin"}
+	var options []huh.Option[string]
+
+	for _, scope := range allScopes {
+		has := false
+		for _, s := range userScopes {
+			if s == scope {
+				has = true
+				break
+			}
+		}
+		if has {
+			options = append(options, huh.NewOption(scope, scope))
+		} else {
+			// Grey out using faint ANSI escape code
+			label := fmt.Sprintf("\x1b[2m%s (unavailable)\x1b[0m", scope)
+			options = append(options, huh.NewOption(label, scope+"_unavailable"))
+		}
+	}
+
+	var selected []string
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewMultiSelect[string]().
+				Title("Select Scopes").
+				Description("Choose the scopes to grant to this token").
+				Options(options...).
+				Value(&selected).
+				Validate(func(val []string) error {
+					for _, v := range val {
+						if strings.HasSuffix(v, "_unavailable") {
+							return fmt.Errorf("cannot select unavailable scope: %s", strings.TrimSuffix(v, "_unavailable"))
+						}
+					}
+					return nil
+				}),
+		),
+	)
+
+	if err := form.Run(); err != nil {
+		return nil, err
+	}
+
+	return selected, nil
+}
