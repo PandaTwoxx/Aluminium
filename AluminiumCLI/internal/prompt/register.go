@@ -68,7 +68,7 @@ func PackageRegister(defaults PackageRegisterInput) (*PackageRegisterInput, erro
 			Value(&result.BuildSystem),
 		huh.NewInput().
 			Title("Source directory or URL").
-			Description("Git URL or path to package sources (optional for prebuilt-only packages)").
+			Description("Cloneable URL or local path to package sources (optional for prebuilt-only packages)").
 			Placeholder("https://github.com/org/mylib.git").
 			Value(&result.SourceDir),
 	).Title("Register Package").

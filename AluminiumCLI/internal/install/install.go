@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -95,14 +96,14 @@ func RegenerateEnvFile(state *InstalledState) error {
 
 	// subdir -> which env vars it feeds
 	subdirMap := map[string][]int{
-		"bin":            {0},       // PATH
-		"sbin":           {0},       // PATH
-		"lib":            {1, 2},    // LD_LIBRARY_PATH, DYLD_LIBRARY_PATH
-		"lib64":          {1, 2},    // LD_LIBRARY_PATH, DYLD_LIBRARY_PATH
-		"include":        {3},       // CPATH
-		"lib/pkgconfig":  {4},       // PKG_CONFIG_PATH
-		"lib64/pkgconfig": {4},      // PKG_CONFIG_PATH
-		"share/pkgconfig": {4},      // PKG_CONFIG_PATH
+		"bin":             {0},    // PATH
+		"sbin":            {0},    // PATH
+		"lib":             {1, 2}, // LD_LIBRARY_PATH, DYLD_LIBRARY_PATH
+		"lib64":           {1, 2}, // LD_LIBRARY_PATH, DYLD_LIBRARY_PATH
+		"include":         {3},    // CPATH
+		"lib/pkgconfig":   {4},    // PKG_CONFIG_PATH
+		"lib64/pkgconfig": {4},    // PKG_CONFIG_PATH
+		"share/pkgconfig": {4},    // PKG_CONFIG_PATH
 	}
 
 	for pkgName := range state.Packages {
@@ -269,6 +270,45 @@ func extractTarGz(gzipStream io.Reader, destDir string) error {
 	return nil
 }
 
+func isArchiveSourceURL(sourceURL string) bool {
+	lower := strings.ToLower(sourceURL)
+	return strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz") || strings.HasSuffix(lower, ".tar")
+}
+
+func downloadAndExtractSourceArchive(sourceURL, destDir string) error {
+	resp, err := http.Get(sourceURL)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("source download failed with status %s", resp.Status)
+	}
+
+	tempFile, err := os.CreateTemp("", "aluminium-source-*.tar.gz")
+	if err != nil {
+		return err
+	}
+	tempPath := tempFile.Name()
+	defer os.Remove(tempPath)
+	defer tempFile.Close()
+
+	if _, err := io.Copy(tempFile, resp.Body); err != nil {
+		return err
+	}
+	if _, err := tempFile.Seek(0, 0); err != nil {
+		return err
+	}
+
+	file, err := os.Open(tempPath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	return extractTarGz(file, destDir)
+}
+
 func InstallSinglePackage(node *graph.Node, api *client.APIClient, cfg *config.Config, state *InstalledState) error {
 	configDir, err := config.GetConfigDir()
 	if err != nil {
@@ -333,12 +373,18 @@ func InstallSinglePackage(node *graph.Node, api *client.APIClient, cfg *config.C
 	defer os.RemoveAll(buildDir)
 
 	if node.BuildSetup.SourceCodeURL != "" {
-		fmt.Printf("Cloning source code from %s...\n", node.BuildSetup.SourceCodeURL)
-		cmd := exec.Command("git", "clone", node.BuildSetup.SourceCodeURL, buildDir)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			fmt.Printf("Warning: git clone failed: %v. Proceeding to run build script in workspace.\n", err)
+		fmt.Printf("Fetching source code from %s...\n", node.BuildSetup.SourceCodeURL)
+		if isArchiveSourceURL(node.BuildSetup.SourceCodeURL) {
+			if err := downloadAndExtractSourceArchive(node.BuildSetup.SourceCodeURL, buildDir); err != nil {
+				fmt.Printf("Warning: failed to download source archive: %v. Proceeding to run build script in workspace.\n", err)
+			}
+		} else {
+			cmd := exec.Command("git", "clone", node.BuildSetup.SourceCodeURL, buildDir)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			if err := cmd.Run(); err != nil {
+				fmt.Printf("Warning: git clone failed: %v. Proceeding to run build script in workspace.\n", err)
+			}
 		}
 	}
 

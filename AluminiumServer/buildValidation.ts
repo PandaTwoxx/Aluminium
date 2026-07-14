@@ -2,7 +2,6 @@ const VALID_BUILD_SYSTEMS = ['cmake', 'make', 'meson', 'custom', 'none'] as cons
 const PACKAGE_NAME_REGEX = /^[a-zA-Z0-9._-]{1,100}$/;
 const PACKAGE_VERSION_REGEX = /^[a-zA-Z0-9.+_-]{1,100}$/;
 const SAFE_BUILD_FLAGS_REGEX = /^[A-Za-z0-9 _./=+-]{0,200}$/;
-const SAFE_SOURCE_DIR_REGEX = /^[A-Za-z0-9._\-/]{0,200}$/;
 const SAFE_SOURCE_URL_REGEX = /^(https?:\/\/|git@|ssh:\/\/|git:\/\/)[A-Za-z0-9._~:/?#[\]@!$&'()*+,;=%-]+$/i;
 const SHELL_META_REGEX = /[;&|`$<>\\]/;
 
@@ -32,10 +31,7 @@ export function validateSourceDir(value: unknown): value is string {
   if (trimmedValue.startsWith('/') || trimmedValue.includes('..') || trimmedValue.includes('\\')) {
     return false;
   }
-  if (trimmedValue.startsWith('http://') || trimmedValue.startsWith('https://') || trimmedValue.startsWith('git@') || trimmedValue.startsWith('ssh://') || trimmedValue.startsWith('git://')) {
-    return SAFE_SOURCE_URL_REGEX.test(trimmedValue);
-  }
-  return SAFE_SOURCE_DIR_REGEX.test(trimmedValue);
+  return SAFE_SOURCE_URL_REGEX.test(trimmedValue);
 }
 
 function containsAbsolutePath(value: string): boolean {

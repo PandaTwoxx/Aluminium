@@ -313,7 +313,7 @@ func init() {
 	packageRegisterCmd.Flags().StringVar(&pkgCustomInstallFlag, "custom-install", "", "Shell script content to install (for custom build system)")
 	packageRegisterCmd.Flags().StringVar(&pkgCustomUninstallFlag, "custom-uninstall", "", "Shell script content to uninstall (for custom build system)")
 	packageRegisterCmd.Flags().StringVar(&pkgBuildFlagsFlag, "build-flags", "", "Build flags/arguments passed to setup (for cmake, make, meson)")
-	packageRegisterCmd.Flags().StringVar(&pkgSourceDirFlag, "source-dir", "", "Relative path or git URL pointing to package sources")
+	packageRegisterCmd.Flags().StringVar(&pkgSourceDirFlag, "source-dir", "", "Relative path or cloneable URL pointing to package sources")
 	packageCmd.AddCommand(packageRegisterCmd)
 
 	// Get details flags
