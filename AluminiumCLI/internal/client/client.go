@@ -32,8 +32,8 @@ type BuildSetup struct {
 }
 
 type TokenInfo struct {
-	First8Chars string `json:"first8Chars"`
-	CreatedAt   string `json:"createdAt"`
+	First8Chars string   `json:"first8Chars"`
+	CreatedAt   string   `json:"createdAt"`
 	Scopes      []string `json:"scopes"`
 }
 
@@ -230,15 +230,15 @@ func (c *APIClient) GetTokenScopes(server, token string) ([]string, error) {
 // Package Operations
 
 type RegisterPackagePayload struct {
-	Name                 string   `json:"name"`
-	Version              string   `json:"version"`
-	BuildSystem          string   `json:"buildSystem"`
-	Dependencies         []string `json:"dependencies,omitempty"`
-	CustomBuildScript    string   `json:"customBuildScript,omitempty"`
-	CustomInstallScript  string   `json:"customInstallScript,omitempty"`
-	CustomUninstallScript string  `json:"customUninstallScript,omitempty"`
-	BuildFlags           string   `json:"buildFlags,omitempty"`
-	SourceDir            string   `json:"sourceDir,omitempty"`
+	Name                  string   `json:"name"`
+	Version               string   `json:"version"`
+	BuildSystem           string   `json:"buildSystem"`
+	Dependencies          []string `json:"dependencies,omitempty"`
+	CustomBuildScript     string   `json:"customBuildScript,omitempty"`
+	CustomInstallScript   string   `json:"customInstallScript,omitempty"`
+	CustomUninstallScript string   `json:"customUninstallScript,omitempty"`
+	BuildFlags            string   `json:"buildFlags,omitempty"`
+	SourceDir             string   `json:"sourceDir,omitempty"`
 }
 
 func (c *APIClient) RegisterPackage(server string, payload *RegisterPackagePayload, token string) error {

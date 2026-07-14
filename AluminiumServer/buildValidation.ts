@@ -3,6 +3,7 @@ const PACKAGE_NAME_REGEX = /^[a-zA-Z0-9._-]{1,100}$/;
 const PACKAGE_VERSION_REGEX = /^[a-zA-Z0-9.+_-]{1,100}$/;
 const SAFE_BUILD_FLAGS_REGEX = /^[A-Za-z0-9 _./=+-]{0,200}$/;
 const SAFE_SOURCE_DIR_REGEX = /^[A-Za-z0-9._\-/]{0,200}$/;
+const SAFE_SOURCE_URL_REGEX = /^(https?:\/\/|git@|ssh:\/\/|git:\/\/)[A-Za-z0-9._~:/?#[\]@!$&'()*+,;=%-]+$/i;
 const SHELL_META_REGEX = /[;&|`$<>\\]/;
 
 export function validatePackageName(value: unknown): value is string {
@@ -21,13 +22,20 @@ export function validateSourceDir(value: unknown): value is string {
   if (value === undefined) {
     return true;
   }
-  if (typeof value !== 'string' || value.length === 0 || value.length > 200) {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 500) {
     return false;
   }
-  if (value.startsWith('/') || value.includes('..') || value.includes('\\')) {
+  const trimmedValue = value.trim();
+  if (trimmedValue.length === 0) {
     return false;
   }
-  return SAFE_SOURCE_DIR_REGEX.test(value);
+  if (trimmedValue.startsWith('/') || trimmedValue.includes('..') || trimmedValue.includes('\\')) {
+    return false;
+  }
+  if (trimmedValue.startsWith('http://') || trimmedValue.startsWith('https://') || trimmedValue.startsWith('git@') || trimmedValue.startsWith('ssh://') || trimmedValue.startsWith('git://')) {
+    return SAFE_SOURCE_URL_REGEX.test(trimmedValue);
+  }
+  return SAFE_SOURCE_DIR_REGEX.test(trimmedValue);
 }
 
 function containsAbsolutePath(value: string): boolean {

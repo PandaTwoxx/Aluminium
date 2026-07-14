@@ -27,6 +27,8 @@ assert(!validateBuildFlags('$(rm -rf /)'));
 
 assert(validateSourceDir('src/project'));
 assert(validateSourceDir('build'));
+assert(validateSourceDir('https://example.com/project/archive.tar.gz'));
+assert(validateSourceDir('git@github.com:owner/repo.git'));
 assert(!validateSourceDir('/etc/passwd'));
 assert(!validateSourceDir('../evil'));
 assert(!validateSourceDir('good\\windows'));
