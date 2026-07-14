@@ -76,9 +76,31 @@ var loginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "Log in and generate a token",
 	Run: func(cmd *cobra.Command, args []string) {
+		cfg, _ := config.LoadConfig()
+		if prompt.IsInteractive(cmd, cfg) {
+			input, err := prompt.Login(prompt.LoginInput{
+				Username: usernameFlag,
+				Password: passwordFlag,
+			})
+			if err != nil {
+				color.Red("Error: %v\n", err)
+				os.Exit(1)
+			}
+			usernameFlag = input.Username
+			passwordFlag = input.Password
+		} else {
+			var missing []string
+			if usernameFlag == "" { missing = append(missing, "username") }
+			if passwordFlag == "" { missing = append(missing, "password") }
+			if len(missing) > 0 {
+				color.Red("Error: required flag(s) %q not set\n", missing)
+				os.Exit(1)
+			}
+		}
+
 		server, err := getServerURL(cmd)
 		if err != nil {
-			fmt.Printf("Error: %v\n", err)
+			color.Red("Error: %v\n", err)
 			os.Exit(1)
 		}
 
@@ -89,14 +111,17 @@ var loginCmd = &cobra.Command{
 		api := client.NewAPIClient()
 		token, err := api.GenerateToken(server, usernameFlag, passwordFlag, scopesFlag)
 		if err != nil {
-			fmt.Printf("Login failed: %v\n", err)
+			color.Red("Login failed: %v\n", err)
 			os.Exit(1)
 		}
 
-		cfg, err := config.LoadConfig()
-		if err != nil {
-			fmt.Printf("Error loading config: %v\n", err)
+		if cfg == nil {
+			color.Red("Error loading config\n")
 			os.Exit(1)
+		}
+
+		if cfg.Servers == nil {
+			cfg.Servers = make(map[string]config.ServerConfig)
 		}
 
 		sCfg := cfg.Servers[server]
@@ -104,11 +129,11 @@ var loginCmd = &cobra.Command{
 		cfg.Servers[server] = sCfg
 
 		if err := config.SaveConfig(cfg); err != nil {
-			fmt.Printf("Error saving config: %v\n", err)
+			color.Red("Error saving config: %v\n", err)
 			os.Exit(1)
 		}
 
-		fmt.Printf("Logged in successfully. Token generated and saved for server %s\n", server)
+		color.Green("Logged in successfully. Token generated and saved for server %s\n", server)
 	},
 }
 
@@ -152,20 +177,42 @@ var tokenRevokeCmd = &cobra.Command{
 	Use:   "revoke",
 	Short: "Revoke an authentication token",
 	Run: func(cmd *cobra.Command, args []string) {
+		cfg, _ := config.LoadConfig()
+		if prompt.IsInteractive(cmd, cfg) {
+			input, err := prompt.TokenRevoke(prompt.TokenRevokeInput{
+				Token:    tokenFlag,
+				Password: passwordFlag,
+			})
+			if err != nil {
+				color.Red("Error: %v\n", err)
+				os.Exit(1)
+			}
+			tokenFlag = input.Token
+			passwordFlag = input.Password
+		} else {
+			var missing []string
+			if tokenFlag == "" { missing = append(missing, "token") }
+			if passwordFlag == "" { missing = append(missing, "password") }
+			if len(missing) > 0 {
+				color.Red("Error: required flag(s) %q not set\n", missing)
+				os.Exit(1)
+			}
+		}
+
 		server, err := getServerURL(cmd)
 		if err != nil {
-			fmt.Printf("Error: %v\n", err)
+			color.Red("Error: %v\n", err)
 			os.Exit(1)
 		}
 
 		api := client.NewAPIClient()
 		err = api.RevokeToken(server, tokenFlag, passwordFlag)
 		if err != nil {
-			fmt.Printf("Error revoking token: %v\n", err)
+			color.Red("Error revoking token: %v\n", err)
 			os.Exit(1)
 		}
 
-		fmt.Println("Token revoked successfully.")
+		color.Green("Token revoked successfully.\n")
 	},
 }
 
@@ -173,20 +220,39 @@ var tokenValidateCmd = &cobra.Command{
 	Use:   "validate",
 	Short: "Validate an authentication token",
 	Run: func(cmd *cobra.Command, args []string) {
+		cfg, _ := config.LoadConfig()
+		if prompt.IsInteractive(cmd, cfg) {
+			input, err := prompt.TokenValidate(prompt.TokenValidateInput{
+				Token: tokenFlag,
+			})
+			if err != nil {
+				color.Red("Error: %v\n", err)
+				os.Exit(1)
+			}
+			tokenFlag = input.Token
+		} else {
+			var missing []string
+			if tokenFlag == "" { missing = append(missing, "token") }
+			if len(missing) > 0 {
+				color.Red("Error: required flag(s) %q not set\n", missing)
+				os.Exit(1)
+			}
+		}
+
 		server, err := getServerURL(cmd)
 		if err != nil {
-			fmt.Printf("Error: %v\n", err)
+			color.Red("Error: %v\n", err)
 			os.Exit(1)
 		}
 
 		api := client.NewAPIClient()
 		resp, err := api.ValidateToken(server, tokenFlag)
 		if err != nil {
-			fmt.Printf("Token validation failed: %v\n", err)
+			color.Red("Token validation failed: %v\n", err)
 			os.Exit(1)
 		}
 
-		fmt.Println("Token is valid.")
+		color.Green("Token is valid.\n")
 		fmt.Printf("User ID: %s\n", resp.UserID)
 		fmt.Printf("Scopes:  %s\n", strings.Join(resp.Scopes, ", "))
 	},
@@ -201,24 +267,46 @@ var scopeGrantCmd = &cobra.Command{
 	Use:   "grant",
 	Short: "Grant a scope to a user (requires admin permission)",
 	Run: func(cmd *cobra.Command, args []string) {
+		cfg, _ := config.LoadConfig()
+		if prompt.IsInteractive(cmd, cfg) {
+			input, err := prompt.ScopeGrant(prompt.ScopeGrantInput{
+				Username: usernameFlag,
+				Scope:    scopeFlag,
+			})
+			if err != nil {
+				color.Red("Error: %v\n", err)
+				os.Exit(1)
+			}
+			usernameFlag = input.Username
+			scopeFlag = input.Scope
+		} else {
+			var missing []string
+			if usernameFlag == "" { missing = append(missing, "username") }
+			if scopeFlag == "" { missing = append(missing, "scope") }
+			if len(missing) > 0 {
+				color.Red("Error: required flag(s) %q not set\n", missing)
+				os.Exit(1)
+			}
+		}
+
 		server, err := getServerURL(cmd)
 		if err != nil {
-			fmt.Printf("Error: %v\n", err)
+			color.Red("Error: %v\n", err)
 			os.Exit(1)
 		}
 		token, err := getAuthToken(cmd, server)
 		if err != nil || token == "" {
-			fmt.Printf("Error: not authenticated or token not provided for %s\n", server)
+			color.Red("Error: not authenticated or token not provided for %s\n", server)
 			os.Exit(1)
 		}
 
 		api := client.NewAPIClient()
 		err = api.GrantScope(server, usernameFlag, scopeFlag, token)
 		if err != nil {
-			fmt.Printf("Error granting scope: %v\n", err)
+			color.Red("Error granting scope: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("Scope '%s' granted to user '%s' successfully.\n", scopeFlag, usernameFlag)
+		color.Green("Scope '%s' granted to user '%s' successfully.\n", scopeFlag, usernameFlag)
 	},
 }
 
@@ -316,18 +404,13 @@ func init() {
 	loginCmd.Flags().StringVarP(&usernameFlag, "username", "u", "", "Username")
 	loginCmd.Flags().StringVarP(&passwordFlag, "password", "p", "", "Password")
 	loginCmd.Flags().StringSliceVar(&scopesFlag, "scopes", []string{}, "Comma-separated list of scopes to request (e.g. read,write)")
-	_ = loginCmd.MarkFlagRequired("username")
-	_ = loginCmd.MarkFlagRequired("password")
 
 	// Revoke flags
 	tokenRevokeCmd.Flags().StringVar(&tokenFlag, "token", "", "Token to revoke")
 	tokenRevokeCmd.Flags().StringVarP(&passwordFlag, "password", "p", "", "User password")
-	_ = tokenRevokeCmd.MarkFlagRequired("token")
-	_ = tokenRevokeCmd.MarkFlagRequired("password")
 
 	// Validate flags
 	tokenValidateCmd.Flags().StringVar(&tokenFlag, "token", "", "Token to validate")
-	_ = tokenValidateCmd.MarkFlagRequired("token")
 
 	tokenCmd.AddCommand(tokenListCmd)
 	tokenCmd.AddCommand(tokenRevokeCmd)
@@ -336,8 +419,6 @@ func init() {
 	// Scope grant flags
 	scopeGrantCmd.Flags().StringVarP(&usernameFlag, "username", "u", "", "Username of the target user")
 	scopeGrantCmd.Flags().StringVarP(&scopeFlag, "scope", "s", "", "Scope to grant ('read', 'write', 'admin', 'dev')")
-	_ = scopeGrantCmd.MarkFlagRequired("username")
-	_ = scopeGrantCmd.MarkFlagRequired("scope")
 
 	scopeCmd.AddCommand(scopeGrantCmd)
 	scopeCmd.AddCommand(scopeGetUserCmd)
