@@ -309,6 +309,30 @@ func downloadAndExtractSourceArchive(sourceURL, destDir string) error {
 	return extractTarGz(file, destDir)
 }
 
+func prepareSourceWorkspace(sourceURL, workspaceDir string) (string, error) {
+	if isArchiveSourceURL(sourceURL) {
+		if err := downloadAndExtractSourceArchive(sourceURL, workspaceDir); err != nil {
+			return "", err
+		}
+		entries, err := os.ReadDir(workspaceDir)
+		if err != nil {
+			return "", err
+		}
+		if len(entries) == 1 && entries[0].IsDir() {
+			return filepath.Join(workspaceDir, entries[0].Name()), nil
+		}
+		return workspaceDir, nil
+	}
+
+	cmd := exec.Command("git", "clone", sourceURL, workspaceDir)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return "", err
+	}
+	return workspaceDir, nil
+}
+
 func InstallSinglePackage(node *graph.Node, api *client.APIClient, cfg *config.Config, state *InstalledState) error {
 	configDir, err := config.GetConfigDir()
 	if err != nil {
@@ -372,32 +396,27 @@ func InstallSinglePackage(node *graph.Node, api *client.APIClient, cfg *config.C
 	}
 	defer os.RemoveAll(buildDir)
 
+	workingDir := buildDir
 	if node.BuildSetup.SourceCodeURL != "" {
 		fmt.Printf("Fetching source code from %s...\n", node.BuildSetup.SourceCodeURL)
-		if isArchiveSourceURL(node.BuildSetup.SourceCodeURL) {
-			if err := downloadAndExtractSourceArchive(node.BuildSetup.SourceCodeURL, buildDir); err != nil {
-				fmt.Printf("Warning: failed to download source archive: %v. Proceeding to run build script in workspace.\n", err)
-			}
+		preparedDir, err := prepareSourceWorkspace(node.BuildSetup.SourceCodeURL, buildDir)
+		if err != nil {
+			fmt.Printf("Warning: failed to prepare source workspace: %v. Proceeding to run build script in workspace.\n", err)
 		} else {
-			cmd := exec.Command("git", "clone", node.BuildSetup.SourceCodeURL, buildDir)
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			if err := cmd.Run(); err != nil {
-				fmt.Printf("Warning: git clone failed: %v. Proceeding to run build script in workspace.\n", err)
-			}
+			workingDir = preparedDir
 		}
 	}
 
 	if node.BuildSetup.BuildScript != "" {
 		fmt.Println("Running build script...")
-		if err := runScript(node.BuildSetup.BuildScript, buildDir); err != nil {
+		if err := runScript(node.BuildSetup.BuildScript, workingDir); err != nil {
 			return fmt.Errorf("build failed: %w", err)
 		}
 	}
 
 	if node.BuildSetup.InstallScript != "" {
 		fmt.Println("Running install script...")
-		if err := runScript(node.BuildSetup.InstallScript, buildDir); err != nil {
+		if err := runScript(node.BuildSetup.InstallScript, workingDir); err != nil {
 			return fmt.Errorf("install failed: %w", err)
 		}
 	}
