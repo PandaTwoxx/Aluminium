@@ -3,7 +3,10 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 
+	"github.com/PandaTwoxx/Aluminium"
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
@@ -13,7 +16,8 @@ var rootCmd = &cobra.Command{
 	Long:  `Aluminium is a powerful command-line interface (CLI) tool that helps you download and manage system packages efficiently.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if val, _ := cmd.Flags().GetBool("version"); val {
-			fmt.Println("Aluminium version 2.0.0")
+			version := strings.TrimSpace(aluminium.Version)
+			color.Cyan("Aluminium version %s\n", version)
 			return
 		}
 		cmd.Help()

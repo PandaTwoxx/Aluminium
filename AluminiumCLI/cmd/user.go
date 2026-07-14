@@ -7,6 +7,8 @@ import (
 
 	"github.com/PandaTwoxx/Aluminium/internal/client"
 	"github.com/PandaTwoxx/Aluminium/internal/config"
+	"github.com/PandaTwoxx/Aluminium/internal/prompt"
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
@@ -29,19 +31,44 @@ var userCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new user on the server",
 	Run: func(cmd *cobra.Command, args []string) {
+		cfg, _ := config.LoadConfig()
+		if prompt.IsInteractive(cmd, cfg) {
+			input, err := prompt.UserCreate(prompt.UserCreateInput{
+				Username: usernameFlag,
+				Password: passwordFlag,
+				Email:    emailFlag,
+			})
+			if err != nil {
+				color.Red("Error: %v\n", err)
+				os.Exit(1)
+			}
+			usernameFlag = input.Username
+			passwordFlag = input.Password
+			emailFlag = input.Email
+		} else {
+			var missing []string
+			if usernameFlag == "" { missing = append(missing, "username") }
+			if passwordFlag == "" { missing = append(missing, "password") }
+			if emailFlag == "" { missing = append(missing, "email") }
+			if len(missing) > 0 {
+				color.Red("Error: required flag(s) %q not set\n", missing)
+				os.Exit(1)
+			}
+		}
+
 		server, err := getServerURL(cmd)
 		if err != nil {
-			fmt.Printf("Error: %v\n", err)
+			color.Red("Error: %v\n", err)
 			os.Exit(1)
 		}
 
 		api := client.NewAPIClient()
 		err = api.CreateUser(server, usernameFlag, passwordFlag, emailFlag)
 		if err != nil {
-			fmt.Printf("Error creating user: %v\n", err)
+			color.Red("Error creating user: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("User '%s' created successfully on %s\n", usernameFlag, server)
+		color.Green("User '%s' created successfully on %s\n", usernameFlag, server)
 	},
 }
 
@@ -283,9 +310,6 @@ func init() {
 	userCreateCmd.Flags().StringVarP(&usernameFlag, "username", "u", "", "Username")
 	userCreateCmd.Flags().StringVarP(&passwordFlag, "password", "p", "", "Password")
 	userCreateCmd.Flags().StringVarP(&emailFlag, "email", "e", "", "Email address")
-	_ = userCreateCmd.MarkFlagRequired("username")
-	_ = userCreateCmd.MarkFlagRequired("password")
-	_ = userCreateCmd.MarkFlagRequired("email")
 	userCmd.AddCommand(userCreateCmd)
 
 	// Login flags
