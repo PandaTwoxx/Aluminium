@@ -714,8 +714,8 @@ app.post('/api/registerPackage', async (req: Request, res: Response, next: NextF
       const buildFlagsSafe = typeof buildFlags === 'string' ? buildFlags.trim() : '';
       packagePayload.buildSetup = {
         sourceCodeUrl: typeof sourceDir === 'string' ? sourceDir : '',
-        buildScript: `mkdir build && cd build && ../configure ${buildFlagsSafe} --prefix="$HOME/.aluminium/install/${safeName}"  && make`,
-        installScript: `make install`,
+        buildScript: `mkdir -p build && cd build && ../configure ${buildFlagsSafe} --prefix="$HOME/.aluminium/install/${safeName}" && JOBS=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 2) && make -j "$JOBS"`,
+        installScript: `cd build && make install`,
         uninstallScript: `rm -rf "$HOME/.aluminium/install/${safeName}"`,
       };
     } else if (buildSystem === 'meson') {
