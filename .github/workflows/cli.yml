@@ -67,3 +67,4 @@ jobs:
             AluminiumCLI/dist/aluminium-darwin-amd64
             AluminiumCLI/dist/aluminium-darwin-arm64
             AluminiumCLI/dist/aluminium-windows-amd64.exe
+            AluminiumCLI/dist/aluminium-linux-arm64
