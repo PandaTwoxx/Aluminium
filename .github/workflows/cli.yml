@@ -36,6 +36,9 @@ jobs:
           
           # Linux amd64
           GOOS=linux GOARCH=amd64 go build -o dist/aluminium-linux-amd64 ./cmd/aluminium
+
+          # Linux arm64
+          GOOS=linux GOARCH=arm64 go build -o dist/aluminium-linux-arm64 ./cmd/aluminium
           
           # macOS amd64 (Intel)
           GOOS=darwin GOARCH=amd64 go build -o dist/aluminium-darwin-amd64 ./cmd/aluminium
