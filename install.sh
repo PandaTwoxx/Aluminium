@@ -32,7 +32,11 @@ if [ "$OS" = "darwin" ]; then
         BINARY_NAME="aluminium-darwin-amd64"
     fi
 elif [ "$OS" = "linux" ]; then
-    BINARY_NAME="aluminium-linux-amd64"
+    if [ "$ARCH" = "arm64" ]; then
+        BINARY_NAME="aluminium-linux-arm64"
+    else
+        BINARY_NAME="aluminium-linux-amd64"
+    fi
 else
     echo "Error: Unsupported operating system: $OS"
     exit 1
