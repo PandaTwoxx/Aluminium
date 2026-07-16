@@ -114,6 +114,15 @@ func (c *APIClient) CreateUser(server, username, password, email string) error {
 	return err
 }
 
+func (c *APIClient) DeleteUser(server, username, password string) error {
+	payload := map[string]string{
+		"username": username,
+		"password": password,
+	}
+	_, err := c.do("POST", server, "/api/deleteUser", payload, "")
+	return err
+}
+
 type GenerateTokenResponse struct {
 	Token   string `json:"token"`
 	Message string `json:"message"`

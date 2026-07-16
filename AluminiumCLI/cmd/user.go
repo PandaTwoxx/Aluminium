@@ -72,6 +72,48 @@ var userCreateCmd = &cobra.Command{
 	},
 }
 
+var userDeleteCmd = &cobra.Command{
+	Use:   "delete",
+	Short: "Delete a user account from the server",
+	Run: func(cmd *cobra.Command, args []string) {
+		cfg, _ := config.LoadConfig()
+		if prompt.IsInteractive(cmd, cfg) {
+			input, err := prompt.Login(prompt.LoginInput{
+				Username: usernameFlag,
+				Password: passwordFlag,
+			})
+			if err != nil {
+				color.Red("Error: %v\n", err)
+				os.Exit(1)
+			}
+			usernameFlag = input.Username
+			passwordFlag = input.Password
+		} else {
+			var missing []string
+			if usernameFlag == "" { missing = append(missing, "username") }
+			if passwordFlag == "" { missing = append(missing, "password") }
+			if len(missing) > 0 {
+				color.Red("Error: required flag(s) %q not set\n", missing)
+				os.Exit(1)
+			}
+		}
+
+		server, err := getServerURL(cmd)
+		if err != nil {
+			color.Red("Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		api := client.NewAPIClient()
+		err = api.DeleteUser(server, usernameFlag, passwordFlag)
+		if err != nil {
+			color.Red("Error deleting user: %v\n", err)
+			os.Exit(1)
+		}
+		color.Green("User '%s' deleted successfully from %s\n", usernameFlag, server)
+	},
+}
+
 var loginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "Log in and generate a token",
@@ -492,6 +534,11 @@ func init() {
 	userCreateCmd.Flags().StringVarP(&passwordFlag, "password", "p", "", "Password")
 	userCreateCmd.Flags().StringVarP(&emailFlag, "email", "e", "", "Email address")
 	userCmd.AddCommand(userCreateCmd)
+
+	// Delete user flags
+	userDeleteCmd.Flags().StringVarP(&usernameFlag, "username", "u", "", "Username")
+	userDeleteCmd.Flags().StringVarP(&passwordFlag, "password", "p", "", "Password")
+	userCmd.AddCommand(userDeleteCmd)
 
 	// Login flags
 	loginCmd.Flags().StringVarP(&usernameFlag, "username", "u", "", "Username")

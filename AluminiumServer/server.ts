@@ -120,6 +120,31 @@ app.post('/api/createUser', async (req: Request, res: Response, next: NextFuncti
   }
 });
 
+app.post('/api/deleteUser', async (req: Request, res: Response, next: NextFunction): Promise<any> => {
+  const { username, password } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Missing required fields for user deletion.' });
+  }
+
+  try {
+    const users = client.db(DB_NAME).collection<User>('users');
+    const user = await users.findOne({ username });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.passwordHash);
+    if (!isMatch) {
+      return res.status(401).json({ error: 'Invalid credentials.' });
+    }
+
+    await users.deleteOne({ _id: user._id });
+    return res.status(200).json({ message: 'User deleted successfully.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post('/api/generateToken', async (req: Request, res: Response, next: NextFunction): Promise<any> => {
   const { username, password, scopes } = req.body;
   if (!username || !password) {
