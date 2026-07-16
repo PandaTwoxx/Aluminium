@@ -47,9 +47,15 @@ var userCreateCmd = &cobra.Command{
 			emailFlag = input.Email
 		} else {
 			var missing []string
-			if usernameFlag == "" { missing = append(missing, "username") }
-			if passwordFlag == "" { missing = append(missing, "password") }
-			if emailFlag == "" { missing = append(missing, "email") }
+			if usernameFlag == "" {
+				missing = append(missing, "username")
+			}
+			if passwordFlag == "" {
+				missing = append(missing, "password")
+			}
+			if emailFlag == "" {
+				missing = append(missing, "email")
+			}
 			if len(missing) > 0 {
 				color.Red("Error: required flag(s) %q not set\n", missing)
 				os.Exit(1)
@@ -90,8 +96,12 @@ var userDeleteCmd = &cobra.Command{
 			passwordFlag = input.Password
 		} else {
 			var missing []string
-			if usernameFlag == "" { missing = append(missing, "username") }
-			if passwordFlag == "" { missing = append(missing, "password") }
+			if usernameFlag == "" {
+				missing = append(missing, "username")
+			}
+			if passwordFlag == "" {
+				missing = append(missing, "password")
+			}
 			if len(missing) > 0 {
 				color.Red("Error: required flag(s) %q not set\n", missing)
 				os.Exit(1)
@@ -132,8 +142,12 @@ var loginCmd = &cobra.Command{
 			passwordFlag = input.Password
 		} else {
 			var missing []string
-			if usernameFlag == "" { missing = append(missing, "username") }
-			if passwordFlag == "" { missing = append(missing, "password") }
+			if usernameFlag == "" {
+				missing = append(missing, "username")
+			}
+			if passwordFlag == "" {
+				missing = append(missing, "password")
+			}
 			if len(missing) > 0 {
 				color.Red("Error: required flag(s) %q not set\n", missing)
 				os.Exit(1)
@@ -220,8 +234,12 @@ var tokenCreateCmd = &cobra.Command{
 			passwordFlag = input.Password
 		} else {
 			var missing []string
-			if usernameFlag == "" { missing = append(missing, "username") }
-			if passwordFlag == "" { missing = append(missing, "password") }
+			if usernameFlag == "" {
+				missing = append(missing, "username")
+			}
+			if passwordFlag == "" {
+				missing = append(missing, "password")
+			}
 			if len(missing) > 0 {
 				color.Red("Error: required flag(s) %q not set\n", missing)
 				os.Exit(1)
@@ -326,8 +344,12 @@ var tokenRevokeCmd = &cobra.Command{
 			passwordFlag = input.Password
 		} else {
 			var missing []string
-			if tokenFlag == "" { missing = append(missing, "token") }
-			if passwordFlag == "" { missing = append(missing, "password") }
+			if tokenFlag == "" {
+				missing = append(missing, "token")
+			}
+			if passwordFlag == "" {
+				missing = append(missing, "password")
+			}
 			if len(missing) > 0 {
 				color.Red("Error: required flag(s) %q not set\n", missing)
 				os.Exit(1)
@@ -367,7 +389,9 @@ var tokenValidateCmd = &cobra.Command{
 			tokenFlag = input.Token
 		} else {
 			var missing []string
-			if tokenFlag == "" { missing = append(missing, "token") }
+			if tokenFlag == "" {
+				missing = append(missing, "token")
+			}
 			if len(missing) > 0 {
 				color.Red("Error: required flag(s) %q not set\n", missing)
 				os.Exit(1)
@@ -416,8 +440,12 @@ var scopeGrantCmd = &cobra.Command{
 			scopeFlag = input.Scope
 		} else {
 			var missing []string
-			if usernameFlag == "" { missing = append(missing, "username") }
-			if scopeFlag == "" { missing = append(missing, "scope") }
+			if usernameFlag == "" {
+				missing = append(missing, "username")
+			}
+			if scopeFlag == "" {
+				missing = append(missing, "scope")
+			}
 			if len(missing) > 0 {
 				color.Red("Error: required flag(s) %q not set\n", missing)
 				os.Exit(1)
