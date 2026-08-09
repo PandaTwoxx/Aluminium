@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/PandaTwoxx/Aluminium/internal/client"
+	"github.com/fatih/color"
 )
 
 // PullContainer downloads a container image from Aluminium server registry or Docker Hub and loads it into containerd.
@@ -26,7 +27,7 @@ func PullContainer(nameOrImage string, source string, server string, token strin
 	}
 
 	if source == "aluminium" {
-		fmt.Printf("Pulling container '%s@%s' from Aluminium server (%s)...\n", pkgName, version, server)
+		color.Cyan("Pulling container '%s@%s' from Aluminium server (%s)...\n", pkgName, version, server)
 
 		stream, err := api.DownloadPrebuilt(server, pkgName, version, token)
 		if err != nil {
@@ -47,7 +48,7 @@ func PullContainer(nameOrImage string, source string, server string, token strin
 		}
 		tmpFile.Close()
 
-		fmt.Println("Loading container image into containerd via nerdctl...")
+		color.Cyan("Loading container image into containerd via nerdctl...\n")
 		loadCmd := exec.Command(nerdctlBin, "load", "-i", tmpPath)
 		loadCmd.Stdout = os.Stdout
 		loadCmd.Stderr = os.Stderr
@@ -56,12 +57,12 @@ func PullContainer(nameOrImage string, source string, server string, token strin
 			return fmt.Errorf("failed to load container image with nerdctl: %w", err)
 		}
 
-		fmt.Printf("✓ Successfully pulled and loaded container '%s@%s' from Aluminium server.\n", pkgName, version)
+		color.Green("✓ Successfully pulled and loaded container '%s@%s' from Aluminium server.\n", pkgName, version)
 		return nil
 	}
 
 	// Default Docker Hub pull
-	fmt.Printf("Pulling container image '%s' from Docker Hub...\n", nameOrImage)
+	color.Cyan("Pulling container image '%s' from Docker Hub...\n", nameOrImage)
 	pullCmd := exec.Command(nerdctlBin, "pull", nameOrImage)
 	pullCmd.Stdout = os.Stdout
 	pullCmd.Stderr = os.Stderr
@@ -69,7 +70,7 @@ func PullContainer(nameOrImage string, source string, server string, token strin
 	if err := pullCmd.Run(); err != nil {
 		// Attempt Aluminium server fallback if dockerhub pull fails
 		if server != "" {
-			fmt.Printf("Docker Hub pull failed (%v). Attempting Aluminium server fallback...\n", err)
+			color.Yellow("Docker Hub pull failed (%v). Attempting Aluminium server fallback...\n", err)
 			return PullContainer(nameOrImage, "aluminium", server, token, api)
 		}
 		return fmt.Errorf("failed to pull image '%s': %w", nameOrImage, err)
@@ -80,6 +81,6 @@ func PullContainer(nameOrImage string, source string, server string, token strin
 		_ = exec.Command(nerdctlBin, "tag", nameOrImage+":latest", nameOrImage).Run()
 	}
 
-	fmt.Printf("✓ Successfully pulled image '%s'.\n", nameOrImage)
+	color.Green("✓ Successfully pulled image '%s'.\n", nameOrImage)
 	return nil
 }
