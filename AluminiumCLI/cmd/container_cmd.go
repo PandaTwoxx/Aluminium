@@ -43,13 +43,6 @@ Supports scaling replicas, setting restart policies, interactive shells, and Alu
 	Run: runContainerLaunch,
 }
 
-var launchContainerCmd = &cobra.Command{
-	Use:   "launch-container [file.ac | image_name]",
-	Short: "Launch a container setup (.ac file) or image (alias for `aluminium container launch`)",
-	Long:  `Launch container environments defined by text setup documents (.ac files) or directly from container images.`,
-	Run:   runContainerLaunch,
-}
-
 func runContainerLaunch(cmd *cobra.Command, args []string) {
 	cfg, _ := config.LoadConfig()
 
@@ -178,12 +171,6 @@ func runContainerLaunch(cmd *cobra.Command, args []string) {
 var containerPublishSubCmd = &cobra.Command{
 	Use:   "publish [file.ac | container_name]",
 	Short: "Publish container image to Aluminium server registry or Docker Hub",
-	Run:   runContainerPublish,
-}
-
-var publishContainerCmd = &cobra.Command{
-	Use:   "publish-container [file.ac | container_name]",
-	Short: "Publish container image (alias for `aluminium container publish`)",
 	Run:   runContainerPublish,
 }
 
@@ -379,23 +366,8 @@ func init() {
 	containerCmd.AddCommand(containerRestartCmd)
 	containerCmd.AddCommand(containerDeleteCmd)
 
-	// Top-level aliases for launch-container and publish-container
-	launchContainerCmd.Flags().StringVar(&containerNameFlag, "name", "", "Container base name")
-	launchContainerCmd.Flags().IntVar(&containerReplicasFlag, "replicas", 1, "Number of container replicas to launch")
-	launchContainerCmd.Flags().StringVar(&containerSourceFlag, "source", "dockerhub", "Container image source registry ('dockerhub' or 'aluminium')")
-	launchContainerCmd.Flags().BoolVarP(&containerInteractiveFlag, "interactive", "i", false, "Run container interactively")
-	launchContainerCmd.Flags().BoolVarP(&containerInteractiveFlag, "tty", "t", false, "Allocate a pseudo-TTY")
-	launchContainerCmd.Flags().StringVar(&containerRestartFlag, "restart", "no", "Restart policy ('no', 'always', 'unless-stopped', 'on-failure')")
-	launchContainerCmd.Flags().StringVar(&containerShellPathFlag, "shell-path", "/bin/sh", "Path to interactive shell inside container")
-	launchContainerCmd.Flags().StringSliceVar(&containerPackagesFlag, "packages", []string{}, "Aluminium packages to install into container")
-
-	publishContainerCmd.Flags().StringVar(&containerNameFlag, "name", "", "Container base name")
-	publishContainerCmd.Flags().StringVar(&containerSourceFlag, "source", "aluminium", "Destination registry ('aluminium' or 'dockerhub')")
-
 	containerCmd.PersistentFlags().StringVar(&serverFlag, "server", "", "Aluminium server URL (overrides default)")
 	containerCmd.PersistentFlags().StringVar(&tokenFlag, "auth-token", "", "Token to use for request (overrides saved token)")
 
 	rootCmd.AddCommand(containerCmd)
-	rootCmd.AddCommand(launchContainerCmd)
-	rootCmd.AddCommand(publishContainerCmd)
 }

@@ -18,13 +18,6 @@ var containerPullSubCmd = &cobra.Command{
 	Run:   runContainerPull,
 }
 
-var pullCmd = &cobra.Command{
-	Use:   "pull [image_or_container_name]",
-	Short: "Pull container image (alias for `aluminium container pull`)",
-	Args:  cobra.MinimumNArgs(1),
-	Run:   runContainerPull,
-}
-
 func runContainerPull(cmd *cobra.Command, args []string) {
 	if err := container.EnsureContainerTools(); err != nil {
 		color.Red("Error: %v\n", err)
@@ -49,8 +42,6 @@ func runContainerPull(cmd *cobra.Command, args []string) {
 
 func init() {
 	containerPullSubCmd.Flags().StringVar(&pullSourceFlag, "source", "dockerhub", "Source registry ('dockerhub' or 'aluminium')")
-	pullCmd.Flags().StringVar(&pullSourceFlag, "source", "dockerhub", "Source registry ('dockerhub' or 'aluminium')")
 
 	containerCmd.AddCommand(containerPullSubCmd)
-	rootCmd.AddCommand(pullCmd)
 }
