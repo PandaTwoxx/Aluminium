@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
@@ -70,6 +71,121 @@ func SaveInstalledState(state *InstalledState) error {
 	return os.WriteFile(path, data, 0644)
 }
 
+var envVarOrder = []string{
+	"PATH",
+	"LD_LIBRARY_PATH",
+	"DYLD_LIBRARY_PATH",
+	"CPATH",
+	"PKG_CONFIG_PATH",
+}
+
+func envVarsForInstallDir(rel string) []string {
+	rel = filepath.ToSlash(rel)
+	switch rel {
+	case "bin", "sbin":
+		return []string{"PATH"}
+	case "lib", "lib64":
+		return []string{"LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"}
+	case "include":
+		return []string{"CPATH"}
+	case "lib/pkgconfig", "lib64/pkgconfig", "share/pkgconfig":
+		return []string{"PKG_CONFIG_PATH"}
+	}
+
+	parts := strings.Split(rel, "/")
+	if len(parts) == 0 {
+		return nil
+	}
+
+	switch parts[len(parts)-1] {
+	case "bin", "sbin":
+		return []string{"PATH"}
+	case "lib", "lib64":
+		return []string{"LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"}
+	case "include":
+		return []string{"CPATH"}
+	case "pkgconfig":
+		if len(parts) >= 2 {
+			parent := parts[len(parts)-2]
+			if parent == "lib" || parent == "lib64" || (len(parts) == 2 && parts[0] == "share") {
+				return []string{"PKG_CONFIG_PATH"}
+			}
+		}
+	}
+
+	return nil
+}
+
+func hasInstallLayout(dir string) bool {
+	for _, sub := range []string{"bin", "lib", "lib64", "include", "sbin"} {
+		info, err := os.Stat(filepath.Join(dir, sub))
+		if err == nil && info.IsDir() {
+			return true
+		}
+	}
+	return false
+}
+
+// normalizeExtractedLayout hoists a single top-level directory from tarballs
+// such as mypkg-1.0/bin/... into install/mypkg/bin/...
+func normalizeExtractedLayout(destDir string) error {
+	if hasInstallLayout(destDir) {
+		return nil
+	}
+
+	entries, err := os.ReadDir(destDir)
+	if err != nil {
+		return err
+	}
+	if len(entries) != 1 || !entries[0].IsDir() {
+		return nil
+	}
+
+	nested := filepath.Join(destDir, entries[0].Name())
+	if !hasInstallLayout(nested) {
+		return nil
+	}
+
+	innerEntries, err := os.ReadDir(nested)
+	if err != nil {
+		return err
+	}
+	for _, entry := range innerEntries {
+		if err := os.Rename(filepath.Join(nested, entry.Name()), filepath.Join(destDir, entry.Name())); err != nil {
+			return fmt.Errorf("failed to normalize install layout: %w", err)
+		}
+	}
+	return os.Remove(nested)
+}
+
+func collectEnvPathsFromPackage(pkgDir string) map[string][]string {
+	paths := map[string][]string{
+		"PATH":              {},
+		"LD_LIBRARY_PATH":   {},
+		"DYLD_LIBRARY_PATH": {},
+		"CPATH":             {},
+		"PKG_CONFIG_PATH":   {},
+	}
+
+	_ = filepath.WalkDir(pkgDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || !d.IsDir() {
+			return nil
+		}
+
+		rel, err := filepath.Rel(pkgDir, path)
+		if err != nil || rel == "." {
+			return nil
+		}
+
+		for _, envVar := range envVarsForInstallDir(rel) {
+			paths[envVar] = append(paths[envVar], path)
+		}
+		return nil
+	})
+
+	return paths
+}
+
 // RegenerateEnvFile scans all installed package directories and writes
 // ~/.aluminium/env with exports for PATH, LD_LIBRARY_PATH, DYLD_LIBRARY_PATH,
 // CPATH and PKG_CONFIG_PATH based on any bin/, lib/, include/, lib/pkgconfig/
@@ -81,55 +197,33 @@ func RegenerateEnvFile(state *InstalledState) error {
 	}
 	installBase := filepath.Join(configDir, "install")
 
-	// Map of env var name -> set of paths to prepend
-	type envEntry struct {
-		varName string
-		paths   []string
-	}
-	entries := []envEntry{
-		{varName: "PATH"},
-		{varName: "LD_LIBRARY_PATH"},
-		{varName: "DYLD_LIBRARY_PATH"},
-		{varName: "CPATH"},
-		{varName: "PKG_CONFIG_PATH"},
-	}
-
-	// subdir -> which env vars it feeds
-	subdirMap := map[string][]int{
-		"bin":             {0},    // PATH
-		"sbin":            {0},    // PATH
-		"lib":             {1, 2}, // LD_LIBRARY_PATH, DYLD_LIBRARY_PATH
-		"lib64":           {1, 2}, // LD_LIBRARY_PATH, DYLD_LIBRARY_PATH
-		"include":         {3},    // CPATH
-		"lib/pkgconfig":   {4},    // PKG_CONFIG_PATH
-		"lib64/pkgconfig": {4},    // PKG_CONFIG_PATH
-		"share/pkgconfig": {4},    // PKG_CONFIG_PATH
+	collected := map[string][]string{
+		"PATH":              {},
+		"LD_LIBRARY_PATH":   {},
+		"DYLD_LIBRARY_PATH": {},
+		"CPATH":             {},
+		"PKG_CONFIG_PATH":   {},
 	}
 
 	for pkgName := range state.Packages {
 		pkgDir := filepath.Join(installBase, pkgName)
-		for subdir, envIdxs := range subdirMap {
-			fullPath := filepath.Join(pkgDir, subdir)
-			if info, err := os.Stat(fullPath); err == nil && info.IsDir() {
-				for _, idx := range envIdxs {
-					entries[idx].paths = append(entries[idx].paths, fullPath)
-				}
-			}
+		for envVar, pkgPaths := range collectEnvPathsFromPackage(pkgDir) {
+			collected[envVar] = append(collected[envVar], pkgPaths...)
 		}
 	}
 
-	// Build env file content
 	var sb strings.Builder
 	sb.WriteString("# Aluminium package manager environment\n")
 	sb.WriteString("# Auto-generated — do not edit manually.\n")
 	sb.WriteString("# Source this file in your shell config: source ~/.aluminium/env\n\n")
 
-	for _, entry := range entries {
-		if len(entry.paths) == 0 {
+	for _, envVar := range envVarOrder {
+		paths := collected[envVar]
+		if len(paths) == 0 {
 			continue
 		}
-		joined := strings.Join(entry.paths, ":")
-		sb.WriteString(fmt.Sprintf("export %s=\"%s:$%s\"\n", entry.varName, joined, entry.varName))
+		joined := strings.Join(paths, ":")
+		sb.WriteString(fmt.Sprintf("export %s=\"%s:$%s\"\n", envVar, joined, envVar))
 	}
 
 	envPath := filepath.Join(configDir, "env")
@@ -355,6 +449,9 @@ func InstallSinglePackage(node *graph.Node, api *client.APIClient, cfg *config.C
 
 		if err := extractTarGz(stream, destDir); err != nil {
 			return fmt.Errorf("failed to extract prebuilt binary: %w", err)
+		}
+		if err := normalizeExtractedLayout(destDir); err != nil {
+			return fmt.Errorf("failed to normalize prebuilt install layout: %w", err)
 		}
 
 		state.Packages[node.Name] = InstalledPackage{
