@@ -73,7 +73,7 @@ func EnsureContainerTools() error {
 	return nil
 }
 
-// EnsureRuntimeRunning ensures that containerd daemon is reachable via nerdctl, starting or restarting colima with containerd runtime if necessary.
+// EnsureRuntimeRunning ensures that containerd daemon is reachable via nerdctl, starting or recreating colima with containerd runtime if necessary.
 func EnsureRuntimeRunning() error {
 	if err := EnsureContainerTools(); err != nil {
 		return err
@@ -93,19 +93,20 @@ func EnsureRuntimeRunning() error {
 
 	colimaBin := GetToolPath("colima")
 
-	// Check if colima is currently running (might be running with docker runtime)
+	// Check if colima is currently configured with docker runtime
 	cmd := exec.Command(colimaBin, "status")
-	output, err := cmd.CombinedOutput()
-	colimaRunning := err == nil && strings.Contains(strings.ToLower(string(output)), "running")
+	output, _ := cmd.CombinedOutput()
+	outputLower := strings.ToLower(string(output))
 
-	if colimaRunning {
-		// Colima is running but nerdctl info failed (e.g. running in docker mode instead of containerd mode)
-		fmt.Println("Colima is running with Docker runtime instead of containerd. Restarting colima with containerd runtime...")
-		stopCmd := exec.Command(colimaBin, "stop")
-		stopCmd.Stdout = os.Stdout
-		stopCmd.Stderr = os.Stderr
-		_ = stopCmd.Run()
-	} else {
+	if strings.Contains(outputLower, "docker") {
+		// Colima runtime cannot be updated on an existing VM instance without recreating it
+		fmt.Println("Colima instance was initialized with Docker runtime, but nerdctl requires containerd.")
+		fmt.Println("Recreating Colima instance with containerd runtime...")
+		deleteCmd := exec.Command(colimaBin, "delete", "-f")
+		deleteCmd.Stdout = os.Stdout
+		deleteCmd.Stderr = os.Stderr
+		_ = deleteCmd.Run()
+	} else if !strings.Contains(outputLower, "running") {
 		fmt.Println("Starting colima container runtime daemon (containerd)...")
 	}
 
@@ -122,6 +123,22 @@ func EnsureRuntimeRunning() error {
 			}
 		}
 		return fmt.Errorf("failed to start colima container runtime with containerd: %w\nMake sure colima and nerdctl are installed and configured properly", err)
+	}
+
+	// Verify nerdctl can now connect to containerd
+	checkCmd = exec.Command(nerdctlBin, "info")
+	if checkCmd.Run() != nil {
+		fmt.Println("Colima discarded runtime change for existing instance. Recreating Colima instance to enforce containerd runtime...")
+		_ = exec.Command(colimaBin, "delete", "-f").Run()
+		retryStart := exec.Command(colimaBin, "start", "--runtime", "containerd")
+		retryStart.Stdout = os.Stdout
+		retryStart.Stderr = os.Stderr
+		if err := retryStart.Run(); err != nil {
+			return fmt.Errorf("failed to start colima container runtime with containerd after recreation: %w", err)
+		}
+		if checkCmd.Run() != nil {
+			return fmt.Errorf("nerdctl is unable to connect to containerd runtime via colima")
+		}
 	}
 
 	return nil
