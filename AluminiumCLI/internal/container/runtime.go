@@ -55,7 +55,7 @@ func GetToolPath(toolName string) string {
 func EnsureContainerTools() error {
 	var missing []string
 
-	if !IsToolAvailable("colima") {
+	if runtime.GOOS != "linux" && !IsToolAvailable("colima") {
 		missing = append(missing, "colima")
 	}
 	if !IsToolAvailable("nerdctl") {
@@ -73,37 +73,55 @@ func EnsureContainerTools() error {
 	return nil
 }
 
-// EnsureRuntimeRunning ensures that colima daemon is running.
+// EnsureRuntimeRunning ensures that containerd daemon is reachable via nerdctl, starting or restarting colima with containerd runtime if necessary.
 func EnsureRuntimeRunning() error {
 	if err := EnsureContainerTools(); err != nil {
 		return err
 	}
 
-	colimaBin := GetToolPath("colima")
+	nerdctlBin := GetToolPath("nerdctl")
 
-	// Check colima status
-	cmd := exec.Command(colimaBin, "status")
-	output, err := cmd.CombinedOutput()
-	if err == nil && strings.Contains(strings.ToLower(string(output)), "running") {
+	// Check if nerdctl can already talk to containerd daemon
+	checkCmd := exec.Command(nerdctlBin, "info")
+	if checkCmd.Run() == nil {
 		return nil
 	}
 
-	// Colima not running, attempt to start it
-	fmt.Println("Starting colima container runtime daemon...")
-	startCmd := exec.Command(colimaBin, "start")
+	if !IsToolAvailable("colima") {
+		return fmt.Errorf("containerd daemon is not running and colima is not installed.\nPlease start containerd or install colima with: aluminium install colima")
+	}
+
+	colimaBin := GetToolPath("colima")
+
+	// Check if colima is currently running (might be running with docker runtime)
+	cmd := exec.Command(colimaBin, "status")
+	output, err := cmd.CombinedOutput()
+	colimaRunning := err == nil && strings.Contains(strings.ToLower(string(output)), "running")
+
+	if colimaRunning {
+		// Colima is running but nerdctl info failed (e.g. running in docker mode instead of containerd mode)
+		fmt.Println("Colima is running with Docker runtime instead of containerd. Restarting colima with containerd runtime...")
+		stopCmd := exec.Command(colimaBin, "stop")
+		stopCmd.Stdout = os.Stdout
+		stopCmd.Stderr = os.Stderr
+		_ = stopCmd.Run()
+	} else {
+		fmt.Println("Starting colima container runtime daemon (containerd)...")
+	}
+
+	// Start colima explicitly with containerd runtime
+	startCmd := exec.Command(colimaBin, "start", "--runtime", "containerd")
 	startCmd.Stdout = os.Stdout
 	startCmd.Stderr = os.Stderr
 
 	if err := startCmd.Run(); err != nil {
-		// On Linux if containerd / nerdctl is natively available without colima, check nerdctl
 		if runtime.GOOS == "linux" {
-			nerdctlBin := GetToolPath("nerdctl")
 			checkCmd := exec.Command(nerdctlBin, "info")
 			if checkCmd.Run() == nil {
 				return nil
 			}
 		}
-		return fmt.Errorf("failed to start colima container runtime: %w\nMake sure colima and nerdctl are installed and configured properly", err)
+		return fmt.Errorf("failed to start colima container runtime with containerd: %w\nMake sure colima and nerdctl are installed and configured properly", err)
 	}
 
 	return nil
