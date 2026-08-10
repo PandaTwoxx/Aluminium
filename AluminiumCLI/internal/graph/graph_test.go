@@ -82,3 +82,22 @@ func TestTopoSort_Cycle(t *testing.T) {
 		t.Errorf("expected error message to contain 'cycle', got: %v", err)
 	}
 }
+
+func TestReverseTopoSort(t *testing.T) {
+	g := DependencyGraph{
+		"A": &Node{Name: "A", Dependencies: []string{"B"}},
+		"B": &Node{Name: "B", Dependencies: []string{"C"}},
+		"C": &Node{Name: "C", Dependencies: nil},
+	}
+
+	order, err := ReverseTopoSort(g, []string{"A"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	wantOrder := "A, B, C"
+	gotOrder := strings.Join(order, ", ")
+	if gotOrder != wantOrder {
+		t.Errorf("ReverseTopoSort Order = %q, want %q", gotOrder, wantOrder)
+	}
+}

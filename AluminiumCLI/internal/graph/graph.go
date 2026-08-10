@@ -229,3 +229,15 @@ func TopoSort(graph DependencyGraph, targets []string) ([]string, error) {
 
 	return result, nil
 }
+
+// ReverseTopoSort returns package names in reverse dependency order for uninstall.
+func ReverseTopoSort(graph DependencyGraph, targets []string) ([]string, error) {
+	order, err := TopoSort(graph, targets)
+	if err != nil {
+		return nil, err
+	}
+	for i, j := 0, len(order)-1; i < j; i, j = i+1, j-1 {
+		order[i], order[j] = order[j], order[i]
+	}
+	return order, nil
+}
