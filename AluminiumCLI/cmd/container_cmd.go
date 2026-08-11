@@ -23,6 +23,9 @@ var (
 	containerPackagesFlag    []string
 	containerShowAllFlag     bool
 	containerForceFlag       bool
+	execInteractiveFlag      bool
+	execTTYFlag              bool
+	execDetachFlag           bool
 )
 
 var containerCmd = &cobra.Command{
@@ -314,6 +317,35 @@ var containerDeleteCmd = &cobra.Command{
 	},
 }
 
+var containerExecSubCmd = &cobra.Command{
+	Use:   "exec [container_name_or_id] [command...]",
+	Short: "Execute a command inside a running container",
+	Long:  "Execute a command inside a running container using nerdctl and colima (e.g. al container exec ubuntu bash)",
+	Run: func(cmd *cobra.Command, args []string) {
+		var target string
+		var execCmd []string
+
+		if len(args) == 0 {
+			target = getOrPromptContainerTarget(cmd, nil, false, "Select Container to Exec Into")
+			execCmd = []string{"/bin/sh"}
+		} else if len(args) == 1 {
+			target = args[0]
+			execCmd = []string{"/bin/sh"}
+		} else {
+			target = args[0]
+			execCmd = args[1:]
+		}
+
+		interactive := execInteractiveFlag
+		tty := execTTYFlag
+
+		if err := container.ExecContainer(target, execCmd, interactive, tty, execDetachFlag); err != nil {
+			color.Red("Error executing command in container '%s': %v\n", target, err)
+			os.Exit(1)
+		}
+	},
+}
+
 func isFileExist(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
@@ -354,13 +386,18 @@ func init() {
 	containerPublishSubCmd.Flags().StringVar(&containerNameFlag, "name", "", "Container base name")
 	containerPublishSubCmd.Flags().StringVar(&containerSourceFlag, "source", "aluminium", "Destination registry ('aluminium' or 'dockerhub')")
 
-	containerPsCmd.Flags().BoolVarP(&containerShowAllFlag, "all", "a", false, "Show all containers (default shows running only)")
+	containerExecSubCmd.Flags().BoolVarP(&execInteractiveFlag, "interactive", "i", true, "Keep STDIN open even if not attached")
+	containerExecSubCmd.Flags().BoolVarP(&execTTYFlag, "tty", "t", true, "Allocate a pseudo-TTY")
+	containerExecSubCmd.Flags().BoolVarP(&execDetachFlag, "detach", "d", false, "Detached mode: run command in the background")
+
+	containerPsCmd.Flags().BoolVarP(&containerShowAllFlag, "all", "a", true, "Show all containers (default shows all, running and stopped)")
 	containerDeleteCmd.Flags().BoolVarP(&containerForceFlag, "force", "f", false, "Force removal of a running container")
 
 	// Parent container subcommands
 	containerCmd.AddCommand(containerLaunchSubCmd)
 	containerCmd.AddCommand(containerPublishSubCmd)
 	containerCmd.AddCommand(containerPsCmd)
+	containerCmd.AddCommand(containerExecSubCmd)
 	containerCmd.AddCommand(containerStartCmd)
 	containerCmd.AddCommand(containerStopCmd)
 	containerCmd.AddCommand(containerRestartCmd)

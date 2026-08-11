@@ -83,7 +83,7 @@ func LaunchContainer(spec *ContainerSpec, imageTag string) error {
 		// Cleanup existing container with same name if any
 		_ = exec.Command(nerdctlBin, "rm", "-f", containerName).Run()
 
-		args := []string{"run", "-d", "--name", containerName}
+		args := []string{"run", "-d", "-it", "--name", containerName}
 		if restartPolicy != "no" {
 			args = append(args, fmt.Sprintf("--restart=%s", restartPolicy))
 		}
@@ -288,4 +288,34 @@ func ListContainerReplicas(baseName string) ([]string, error) {
 // FormatReplicasInfo returns string representation of container replicas count.
 func FormatReplicasInfo(count int) string {
 	return strconv.Itoa(count)
+}
+
+// ExecContainer executes a command inside a running container.
+func ExecContainer(nameOrID string, cmdArgs []string, interactive bool, tty bool, detach bool) error {
+	if err := EnsureRuntimeRunning(); err != nil {
+		return err
+	}
+
+	nerdctlBin := GetToolPath("nerdctl")
+
+	args := []string{"exec"}
+	if detach {
+		args = append(args, "-d")
+	} else {
+		if interactive {
+			args = append(args, "-i")
+		}
+		if tty {
+			args = append(args, "-t")
+		}
+	}
+	args = append(args, nameOrID)
+	args = append(args, cmdArgs...)
+
+	cmd := exec.Command(nerdctlBin, args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	return cmd.Run()
 }
