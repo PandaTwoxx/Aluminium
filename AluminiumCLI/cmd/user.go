@@ -13,13 +13,15 @@ import (
 )
 
 var (
-	serverFlag   string
-	usernameFlag string
-	passwordFlag string
-	emailFlag    string
-	scopesFlag   []string
-	tokenFlag    string
-	scopeFlag    string
+	serverFlag      string
+	usernameFlag    string
+	passwordFlag    string
+	emailFlag       string
+	scopesFlag      []string
+	tokenFlag       string
+	scopeFlag       string
+	createTokenFlag bool
+	saveConfigFlag  bool
 )
 
 var userCmd = &cobra.Command{
@@ -75,6 +77,68 @@ var userCreateCmd = &cobra.Command{
 			os.Exit(1)
 		}
 		color.Green("User '%s' created successfully on %s\n", usernameFlag, server)
+
+		createToken := createTokenFlag
+		if prompt.IsInteractive(cmd, cfg) && !cmd.Flags().Changed("create-token") {
+			wantToken, err := prompt.Confirm("Would you like to create an authentication token for this user?", true)
+			if err == nil {
+				createToken = wantToken
+			}
+		}
+
+		if createToken {
+			var selectedScopes []string
+			if prompt.IsInteractive(cmd, cfg) {
+				tempToken, err := api.GenerateToken(server, usernameFlag, passwordFlag, nil)
+				if err == nil {
+					userScopes, err := api.GetTokenScopes(server, tempToken)
+					if err == nil {
+						_ = api.RevokeToken(server, tempToken, passwordFlag)
+						chosen, err := prompt.ChooseScopes(userScopes)
+						if err == nil {
+							selectedScopes = chosen
+						}
+					} else {
+						_ = api.RevokeToken(server, tempToken, passwordFlag)
+					}
+				}
+			} else {
+				selectedScopes = scopesFlag
+			}
+
+			token, err := api.GenerateToken(server, usernameFlag, passwordFlag, selectedScopes)
+			if err != nil {
+				color.Red("Error generating token: %v\n", err)
+				os.Exit(1)
+			}
+			color.Green("Token created successfully: %s\n", token)
+
+			saveConfig := saveConfigFlag
+			if prompt.IsInteractive(cmd, cfg) && !cmd.Flags().Changed("save-config") {
+				wantSave, err := prompt.Confirm(fmt.Sprintf("Would you like to save this token as your default token for server %s in config?", server), true)
+				if err == nil {
+					saveConfig = wantSave
+				}
+			}
+
+			if saveConfig {
+				if cfg == nil {
+					cfg = config.NewDefaultConfig()
+				}
+				if cfg.Servers == nil {
+					cfg.Servers = make(map[string]config.ServerConfig)
+				}
+				sCfg := cfg.Servers[server]
+				sCfg.Token = token
+				cfg.Servers[server] = sCfg
+
+				if err := config.SaveConfig(cfg); err != nil {
+					color.Red("Error saving config: %v\n", err)
+				} else {
+					color.Green("Token saved to config as default token for server %s\n", server)
+				}
+			}
+		}
 	},
 }
 
@@ -194,25 +258,36 @@ var loginCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		if cfg == nil {
-			color.Red("Error loading config\n")
-			os.Exit(1)
+		color.Green("Logged in successfully. Token generated: %s\n", token)
+
+		saveConfig := saveConfigFlag
+		if prompt.IsInteractive(cmd, cfg) && !cmd.Flags().Changed("save-config") {
+			wantSave, err := prompt.Confirm(fmt.Sprintf("Would you like to save this token as your default token for server %s in config?", server), true)
+			if err == nil {
+				saveConfig = wantSave
+			}
+		} else if !cmd.Flags().Changed("save-config") {
+			saveConfig = true
 		}
 
-		if cfg.Servers == nil {
-			cfg.Servers = make(map[string]config.ServerConfig)
+		if saveConfig {
+			if cfg == nil {
+				cfg = config.NewDefaultConfig()
+			}
+			if cfg.Servers == nil {
+				cfg.Servers = make(map[string]config.ServerConfig)
+			}
+			sCfg := cfg.Servers[server]
+			sCfg.Token = token
+			cfg.Servers[server] = sCfg
+
+			if err := config.SaveConfig(cfg); err != nil {
+				color.Red("Error saving config: %v\n", err)
+				os.Exit(1)
+			}
+
+			color.Green("Token saved to config as default token for server %s\n", server)
 		}
-
-		sCfg := cfg.Servers[server]
-		sCfg.Token = token
-		cfg.Servers[server] = sCfg
-
-		if err := config.SaveConfig(cfg); err != nil {
-			color.Red("Error saving config: %v\n", err)
-			os.Exit(1)
-		}
-
-		color.Green("Logged in successfully. Token generated and saved for server %s\n", server)
 	},
 }
 
@@ -287,6 +362,33 @@ var tokenCreateCmd = &cobra.Command{
 		}
 
 		color.Green("Token generated successfully: %s\n", token)
+
+		saveConfig := saveConfigFlag
+		if prompt.IsInteractive(cmd, cfg) && !cmd.Flags().Changed("save-config") {
+			wantSave, err := prompt.Confirm(fmt.Sprintf("Would you like to save this token as your default token for server %s in config?", server), true)
+			if err == nil {
+				saveConfig = wantSave
+			}
+		}
+
+		if saveConfig {
+			if cfg == nil {
+				cfg = config.NewDefaultConfig()
+			}
+			if cfg.Servers == nil {
+				cfg.Servers = make(map[string]config.ServerConfig)
+			}
+			sCfg := cfg.Servers[server]
+			sCfg.Token = token
+			cfg.Servers[server] = sCfg
+
+			if err := config.SaveConfig(cfg); err != nil {
+				color.Red("Error saving config: %v\n", err)
+				os.Exit(1)
+			}
+
+			color.Green("Token saved to config as default token for server %s\n", server)
+		}
 	},
 }
 
@@ -561,6 +663,9 @@ func init() {
 	userCreateCmd.Flags().StringVarP(&usernameFlag, "username", "u", "", "Username")
 	userCreateCmd.Flags().StringVarP(&passwordFlag, "password", "p", "", "Password")
 	userCreateCmd.Flags().StringVarP(&emailFlag, "email", "e", "", "Email address")
+	userCreateCmd.Flags().BoolVar(&createTokenFlag, "create-token", false, "Automatically create an authentication token after creating user")
+	userCreateCmd.Flags().BoolVar(&saveConfigFlag, "save-config", false, "Save generated token as default token in config")
+	userCreateCmd.Flags().StringSliceVar(&scopesFlag, "scopes", []string{}, "Comma-separated list of scopes to request (e.g. read,write)")
 	userCmd.AddCommand(userCreateCmd)
 
 	// Delete user flags
@@ -572,6 +677,7 @@ func init() {
 	loginCmd.Flags().StringVarP(&usernameFlag, "username", "u", "", "Username")
 	loginCmd.Flags().StringVarP(&passwordFlag, "password", "p", "", "Password")
 	loginCmd.Flags().StringSliceVar(&scopesFlag, "scopes", []string{}, "Comma-separated list of scopes to request (e.g. read,write)")
+	loginCmd.Flags().BoolVar(&saveConfigFlag, "save-config", false, "Save generated token as default token in config")
 
 	// Revoke flags
 	tokenRevokeCmd.Flags().StringVar(&tokenFlag, "token", "", "Token to revoke")
@@ -589,6 +695,7 @@ func init() {
 	tokenCreateCmd.Flags().StringVarP(&usernameFlag, "username", "u", "", "Username")
 	tokenCreateCmd.Flags().StringVarP(&passwordFlag, "password", "p", "", "Password")
 	tokenCreateCmd.Flags().StringSliceVar(&scopesFlag, "scopes", []string{}, "Comma-separated list of scopes to request (e.g. read,write)")
+	tokenCreateCmd.Flags().BoolVar(&saveConfigFlag, "save-config", false, "Save generated token as default token in config")
 
 	// Scope grant flags
 	scopeGrantCmd.Flags().StringVarP(&usernameFlag, "username", "u", "", "Username of the target user")

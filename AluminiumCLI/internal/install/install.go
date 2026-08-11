@@ -216,6 +216,7 @@ func RegenerateEnvFile(state *InstalledState) error {
 	sb.WriteString("# Aluminium package manager environment\n")
 	sb.WriteString("# Auto-generated — do not edit manually.\n")
 	sb.WriteString("# Source this file in your shell config: source ~/.aluminium/env\n\n")
+	sb.WriteString("alias al=\"aluminium\"\n\n")
 
 	for _, envVar := range envVarOrder {
 		paths := collected[envVar]

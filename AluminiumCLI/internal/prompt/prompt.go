@@ -30,7 +30,7 @@ func SimpleConfirm(message string, defaultNo bool) (bool, error) {
 
 // Confirm shows a styled yes/no prompt.
 func Confirm(title string, defaultYes bool) (bool, error) {
-	var result bool
+	result := defaultYes
 	err := huh.NewConfirm().
 		Title(title).
 		Affirmative("Yes").

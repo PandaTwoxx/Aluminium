@@ -51,12 +51,51 @@ chmod +x "$BIN_DIR/aluminium"
 echo "Success! Aluminium CLI installed to: $BIN_DIR/aluminium"
 echo "All application data and binaries now operate out of: $ALUM_DIR"
 
+# Set up shell alias and env file
+ENV_FILE="$ALUM_DIR/env"
+if [ ! -f "$ENV_FILE" ]; then
+    echo "alias al=\"aluminium\"" > "$ENV_FILE"
+elif ! grep -q "alias al=" "$ENV_FILE"; then
+    echo "alias al=\"aluminium\"" >> "$ENV_FILE"
+fi
+
+# Detect shell config file
+SHELL_NAME="$(basename "${SHELL:-bash}")"
+RC_FILE=""
+if [ "$SHELL_NAME" = "zsh" ]; then
+    RC_FILE="$HOME/.zshrc"
+elif [ "$SHELL_NAME" = "bash" ]; then
+    if [ -f "$HOME/.bash_profile" ]; then
+        RC_FILE="$HOME/.bash_profile"
+    else
+        RC_FILE="$HOME/.bashrc"
+    fi
+fi
+
+ALIAS_LINE="alias al=\"aluminium\""
+PATH_LINE="export PATH=\"\$PATH:\$HOME/.aluminium/bin\""
+
+if [ -n "$RC_FILE" ]; then
+    if ! grep -q "alias al=" "$RC_FILE" 2>/dev/null; then
+        echo "" >> "$RC_FILE"
+        echo "# Added by Aluminium CLI installer" >> "$RC_FILE"
+        echo "$PATH_LINE" >> "$RC_FILE"
+        echo "$ALIAS_LINE" >> "$RC_FILE"
+        echo "✓ Created alias 'al' for 'aluminium' in $RC_FILE"
+    else
+        echo "✓ Alias 'al' is configured in $RC_FILE"
+    fi
+else
+    echo "To use the 'al' alias, add the following to your shell config file:"
+    echo "  $PATH_LINE"
+    echo "  $ALIAS_LINE"
+fi
+
 # Verify if path is in PATH
 if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
     echo ""
     echo "WARNING: $BIN_DIR is not in your current PATH."
-    echo "To run the 'aluminium' command from any terminal, add the following to your shell config file (e.g. ~/.zshrc or ~/.bash_profile):"
-    echo "  export PATH=\"\$PATH:\$HOME/.aluminium/bin\""
+    echo "Run \`source $RC_FILE\` or open a new terminal for PATH and 'al' alias to take effect."
 else
-    echo "Aluminium CLI is in your PATH and ready to run!"
+    echo "Aluminium CLI is ready to run!"
 fi
