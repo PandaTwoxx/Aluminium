@@ -314,7 +314,11 @@ func runScript(scriptContent, workingDir string) error {
 
 func runScriptWithEnv(scriptContent, workingDir string, forge bool, installDir string) error {
 	scriptPath := filepath.Join(workingDir, "run_setup.sh")
-	err := os.WriteFile(scriptPath, []byte("#!/bin/bash\n"+scriptContent+"\n"), 0755)
+	const envSource = `if [ -f "$HOME/.aluminium/env" ]; then
+  source "$HOME/.aluminium/env"
+fi
+`
+	err := os.WriteFile(scriptPath, []byte("#!/bin/bash\n"+envSource+scriptContent+"\n"), 0755)
 	if err != nil {
 		return err
 	}
