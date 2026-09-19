@@ -17,6 +17,7 @@ type Package struct {
 	Name             string      `json:"name"`
 	Version          string      `json:"version"`
 	BuildSystem      string      `json:"buildSystem"`
+	Forge            bool        `json:"forge,omitempty"`
 	Dependencies     []string    `json:"dependencies"`
 	PrebuiltBinaries []string    `json:"prebuiltBinaries"`
 	BuildSetup       *BuildSetup `json:"buildSetup,omitempty"`
@@ -242,6 +243,7 @@ type RegisterPackagePayload struct {
 	Name                  string   `json:"name"`
 	Version               string   `json:"version"`
 	BuildSystem           string   `json:"buildSystem"`
+	Forge                 bool     `json:"forge,omitempty"`
 	Dependencies          []string `json:"dependencies,omitempty"`
 	CustomBuildScript     string   `json:"customBuildScript,omitempty"`
 	CustomInstallScript   string   `json:"customInstallScript,omitempty"`
@@ -252,6 +254,11 @@ type RegisterPackagePayload struct {
 
 func (c *APIClient) RegisterPackage(server string, payload *RegisterPackagePayload, token string) error {
 	_, err := c.do("POST", server, "/api/registerPackage", payload, token)
+	return err
+}
+
+func (c *APIClient) UpdatePackage(server string, payload *RegisterPackagePayload, token string) error {
+	_, err := c.do("POST", server, "/api/updatePackage", payload, token)
 	return err
 }
 

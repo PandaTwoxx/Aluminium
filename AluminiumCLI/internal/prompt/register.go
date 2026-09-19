@@ -20,6 +20,7 @@ type PackageRegisterInput struct {
 	Name                  string
 	Version               string
 	BuildSystem           string
+	Forge                 bool
 	SourceDir             string
 	BuildFlags            string
 	Dependencies          []string
@@ -66,6 +67,10 @@ func PackageRegister(defaults PackageRegisterInput) (*PackageRegisterInput, erro
 			Description("How source builds are performed on install").
 			Options(buildSystemOptions...).
 			Value(&result.BuildSystem),
+		huh.NewConfirm().
+			Title("Forge package").
+			Description("Install to a user-selected output directory instead of ~/.aluminium/install (dev role or higher)").
+			Value(&result.Forge),
 		huh.NewInput().
 			Title("Source directory or URL").
 			Description("Cloneable URL or local path to package sources (optional for prebuilt-only packages)").
@@ -127,6 +132,7 @@ func PackageRegister(defaults PackageRegisterInput) (*PackageRegisterInput, erro
 	fmt.Printf("  Name:         %s\n", result.Name)
 	fmt.Printf("  Version:      %s\n", result.Version)
 	fmt.Printf("  Build system: %s\n", result.BuildSystem)
+	fmt.Printf("  Forge:        %t\n", result.Forge)
 	if result.SourceDir != "" {
 		fmt.Printf("  Source:       %s\n", result.SourceDir)
 	}

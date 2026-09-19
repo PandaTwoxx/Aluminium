@@ -13,6 +13,7 @@ type Node struct {
 	Name         string
 	Version      string
 	BuildSystem  string
+	Forge        bool
 	Dependencies []string
 	BuildSetup   *client.BuildSetup
 	ServerURL    string
@@ -147,6 +148,7 @@ func ResolveGraph(targets []string, cfg *config.Config, api *client.APIClient) (
 			Name:         foundPkg.Name,
 			Version:      foundPkg.Version,
 			BuildSystem:  foundPkg.BuildSystem,
+			Forge:        foundPkg.Forge,
 			Dependencies: foundPkg.Dependencies,
 			BuildSetup:   foundPkg.BuildSetup,
 			ServerURL:    foundServer,

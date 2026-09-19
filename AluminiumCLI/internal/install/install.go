@@ -23,6 +23,7 @@ import (
 type InstalledPackage struct {
 	Version string `json:"version"`
 	Server  string `json:"server"`
+	InstallDir string `json:"installDir,omitempty"`
 }
 
 type InstalledState struct {
@@ -207,6 +208,9 @@ func RegenerateEnvFile(state *InstalledState) error {
 
 	for pkgName := range state.Packages {
 		pkgDir := filepath.Join(installBase, pkgName)
+		if state.Packages[pkgName].InstallDir != "" {
+			pkgDir = state.Packages[pkgName].InstallDir
+		}
 		for envVar, pkgPaths := range collectEnvPathsFromPackage(pkgDir) {
 			collected[envVar] = append(collected[envVar], pkgPaths...)
 		}
@@ -305,6 +309,10 @@ func checkBuildSystem(buildSystem string) error {
 }
 
 func runScript(scriptContent, workingDir string) error {
+	return runScriptWithEnv(scriptContent, workingDir, false, "")
+}
+
+func runScriptWithEnv(scriptContent, workingDir string, forge bool, installDir string) error {
 	scriptPath := filepath.Join(workingDir, "run_setup.sh")
 	err := os.WriteFile(scriptPath, []byte("#!/bin/bash\n"+scriptContent+"\n"), 0755)
 	if err != nil {
@@ -316,6 +324,9 @@ func runScript(scriptContent, workingDir string) error {
 	cmd.Dir = workingDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	if forge {
+		cmd.Env = append(os.Environ(), "ALUMINIUM_INSTALL_DIR="+installDir)
+	}
 	return cmd.Run()
 }
 
@@ -428,12 +439,24 @@ func prepareSourceWorkspace(sourceURL, workspaceDir string) (string, error) {
 	return workspaceDir, nil
 }
 
-func InstallSinglePackage(node *graph.Node, api *client.APIClient, cfg *config.Config, state *InstalledState) error {
+func InstallSinglePackage(node *graph.Node, api *client.APIClient, cfg *config.Config, state *InstalledState, outputDir string) error {
 	configDir, err := config.GetConfigDir()
 	if err != nil {
 		return err
 	}
+	if node.Forge && strings.TrimSpace(outputDir) == "" {
+		return fmt.Errorf("forge package %s requires an output directory", node.Name)
+	}
 	destDir := filepath.Join(configDir, "install", node.Name)
+	if node.Forge {
+		destDir, err = filepath.Abs(outputDir)
+		if err != nil {
+			return fmt.Errorf("invalid forge output directory: %w", err)
+		}
+		if err := os.MkdirAll(destDir, 0755); err != nil {
+			return fmt.Errorf("failed to create forge output directory: %w", err)
+		}
+	}
 
 	// Step 1: Try prebuilt
 	fmt.Printf("Attempting to download prebuilt binary for %s@%s...\n", node.Name, node.Version)
@@ -458,6 +481,7 @@ func InstallSinglePackage(node *graph.Node, api *client.APIClient, cfg *config.C
 		state.Packages[node.Name] = InstalledPackage{
 			Version: node.Version,
 			Server:  node.ServerURL,
+			InstallDir: func() string { if node.Forge { return destDir }; return "" }(),
 		}
 		if err := SaveInstalledState(state); err != nil {
 			return err
@@ -507,14 +531,14 @@ func InstallSinglePackage(node *graph.Node, api *client.APIClient, cfg *config.C
 
 	if node.BuildSetup.BuildScript != "" {
 		fmt.Println("Running build script...")
-		if err := runScript(node.BuildSetup.BuildScript, workingDir); err != nil {
+		if err := runScriptWithEnv(node.BuildSetup.BuildScript, workingDir, node.Forge, destDir); err != nil {
 			return fmt.Errorf("build failed: %w", err)
 		}
 	}
 
 	if node.BuildSetup.InstallScript != "" {
 		fmt.Println("Running install script...")
-		if err := runScript(node.BuildSetup.InstallScript, workingDir); err != nil {
+		if err := runScriptWithEnv(node.BuildSetup.InstallScript, workingDir, node.Forge, destDir); err != nil {
 			return fmt.Errorf("install failed: %w", err)
 		}
 	}
@@ -522,6 +546,7 @@ func InstallSinglePackage(node *graph.Node, api *client.APIClient, cfg *config.C
 	state.Packages[node.Name] = InstalledPackage{
 		Version: node.Version,
 		Server:  node.ServerURL,
+		InstallDir: func() string { if node.Forge { return destDir }; return "" }(),
 	}
 	if err := SaveInstalledState(state); err != nil {
 		return err

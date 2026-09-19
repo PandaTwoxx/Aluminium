@@ -9,6 +9,7 @@ import {
   validatePackageVersion,
   validateBuildFlags,
   validateSourceDir,
+  validateCustomScript,
   isValidBuildSystem,
 } from './buildValidation.js';
 
@@ -29,6 +30,7 @@ interface Package {
   name: string;
   version: string;
   buildSystem: 'cmake' | 'make' | 'meson' | 'custom' | 'none';
+  forge?: boolean;
   dependencies?: string[];
   prebuiltBinaries?: string[];
   buildSetup?: BuildSetup;
@@ -672,7 +674,7 @@ app.post('/api/registerPackage', async (req: Request, res: Response, next: NextF
       return res.status(403).json({ error: 'Insufficient permissions to register packages.' });
     }
 
-    const { name, version, buildSystem, dependencies } = req.body;
+    const { name, version, buildSystem, dependencies, forge } = req.body;
 
     if (!validatePackageName(name) || !validatePackageVersion(version)) {
       return res.status(400).json({ error: 'Invalid package name or version.' });
@@ -686,6 +688,13 @@ app.post('/api/registerPackage', async (req: Request, res: Response, next: NextF
       return res.status(403).json({ error: 'Insufficient permissions to register custom build systems.' });
     }
 
+    if (forge !== undefined && typeof forge !== 'boolean') {
+      return res.status(400).json({ error: 'Forge must be a boolean when provided.' });
+    }
+    if (forge === true && !hasScope(user.scopes, token.scopes, 'dev')) {
+      return res.status(403).json({ error: 'Insufficient permissions to register forge packages.' });
+    }
+
     if (dependencies !== undefined && !Array.isArray(dependencies)) {
       return res.status(400).json({ error: 'Dependencies must be an array when provided.' });
     }
@@ -695,6 +704,7 @@ app.post('/api/registerPackage', async (req: Request, res: Response, next: NextF
       name: safeName,
       version,
       buildSystem,
+      forge: forge === true,
       dependencies,
       owner: user._id!,
       uploadedAt: new Date()
@@ -702,6 +712,11 @@ app.post('/api/registerPackage', async (req: Request, res: Response, next: NextF
 
     if (buildSystem === 'custom') {
       const { customBuildScript, customInstallScript, customUninstallScript } = req.body;
+      if (!validateCustomScript(customBuildScript) ||
+          !validateCustomScript(customInstallScript) ||
+          (customUninstallScript !== undefined && !validateCustomScript(customUninstallScript))) {
+        return res.status(400).json({ error: 'Invalid custom build script.' });
+      }
       packagePayload.buildSetup = {
         buildScript: customBuildScript,
         installScript: customInstallScript,
@@ -720,9 +735,9 @@ app.post('/api/registerPackage', async (req: Request, res: Response, next: NextF
       const buildFlagsSafe = typeof buildFlags === 'string' ? buildFlags.trim() : '';
       packagePayload.buildSetup = {
         sourceCodeUrl: typeof sourceDir === 'string' ? sourceDir : '',
-        buildScript: `cmake -B build ${buildFlagsSafe} -DCMAKE_INSTALL_PREFIX="$HOME/.aluminium/install/${safeName}" -S . && cmake --build build`,
-        installScript: `cmake --install build && cp build/install_manifest.txt "$HOME/.aluminium/install/${safeName}/install_manifest.txt"`,
-        uninstallScript: `xargs rm -f < "$HOME/.aluminium/install/${safeName}/install_manifest.txt" && rm -rf "$HOME/.aluminium/install/${safeName}"`,
+        buildScript: `cmake -B build ${buildFlagsSafe} -DCMAKE_INSTALL_PREFIX="${forge === true ? '$ALUMINIUM_INSTALL_DIR' : '$HOME/.aluminium/install/' + safeName}" -S . && cmake --build build`,
+        installScript: forge === true ? `cmake --install build` : `cmake --install build && cp build/install_manifest.txt "$HOME/.aluminium/install/${safeName}/install_manifest.txt"`,
+        uninstallScript: forge === true ? '' : `xargs rm -f < "$HOME/.aluminium/install/${safeName}/install_manifest.txt" && rm -rf "$HOME/.aluminium/install/${safeName}"`,
       };
     } else if (buildSystem === 'make') {
       const { buildFlags, sourceDir } = req.body;
@@ -735,9 +750,9 @@ app.post('/api/registerPackage', async (req: Request, res: Response, next: NextF
       const buildFlagsSafe = typeof buildFlags === 'string' ? buildFlags.trim() : '';
       packagePayload.buildSetup = {
         sourceCodeUrl: typeof sourceDir === 'string' ? sourceDir : '',
-        buildScript: `mkdir -p build && cd build && ../configure ${buildFlagsSafe} --prefix="$HOME/.aluminium/install/${safeName}" && JOBS=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 2) && make -j "$JOBS"`,
+        buildScript: `mkdir -p build && cd build && ../configure ${buildFlagsSafe} --prefix="${forge === true ? '$ALUMINIUM_INSTALL_DIR' : '$HOME/.aluminium/install/' + safeName}" && JOBS=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 2) && make -j "$JOBS"`,
         installScript: `cd build && make install`,
-        uninstallScript: `rm -rf "$HOME/.aluminium/install/${safeName}"`,
+        uninstallScript: forge === true ? '' : `rm -rf "$HOME/.aluminium/install/${safeName}"`,
       };
     } else if (buildSystem === 'meson') {
       const { buildFlags, sourceDir } = req.body;
@@ -750,9 +765,9 @@ app.post('/api/registerPackage', async (req: Request, res: Response, next: NextF
       const buildFlagsSafe = typeof buildFlags === 'string' ? buildFlags.trim() : '';
       packagePayload.buildSetup = {
         sourceCodeUrl: typeof sourceDir === 'string' ? sourceDir : '',
-        buildScript: `meson setup build ${buildFlagsSafe} --prefix="$HOME/.aluminium/install/${safeName}" && meson compile -C build`,
+        buildScript: `meson setup build ${buildFlagsSafe} --prefix="${forge === true ? '$ALUMINIUM_INSTALL_DIR' : '$HOME/.aluminium/install/' + safeName}" && meson compile -C build`,
         installScript: `meson install -C build`,
-        uninstallScript: `rm -rf "$HOME/.aluminium/install/${safeName}"`,
+        uninstallScript: forge === true ? '' : `rm -rf "$HOME/.aluminium/install/${safeName}"`,
       };
     }
 
@@ -761,6 +776,105 @@ app.post('/api/registerPackage', async (req: Request, res: Response, next: NextF
     await collection.insertOne(packagePayload);
 
     return res.status(201).json({ message: 'Package registered successfully.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/updatePackage', async (req: Request, res: Response, next: NextFunction): Promise<any> => {
+  const authHeader = req.headers['authorization'];
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Malformed or missing authorization header.' });
+  }
+  const tokenValue = authHeader.substring(7);
+  try {
+    const hashedValue = crypto.createHash('sha256').update(tokenValue).digest('hex');
+    const users = client.db(DB_NAME).collection<User>('users');
+    const user = await users.findOne({ 'tokens.hashedValue': hashedValue });
+    const token = user?.tokens.find(t => t.hashedValue === hashedValue);
+    if (!user || !token || !hasScope(user.scopes, token.scopes, 'write')) {
+      return res.status(403).json({ error: 'Insufficient permissions to edit packages.' });
+    }
+
+    const { name, version, buildSystem, dependencies, forge } = req.body;
+    if (!validatePackageName(name) || !validatePackageVersion(version) || !isValidBuildSystem(buildSystem)) {
+      return res.status(400).json({ error: 'Invalid package name, version, or build system.' });
+    }
+    if (forge !== undefined && typeof forge !== 'boolean') {
+      return res.status(400).json({ error: 'Forge must be a boolean when provided.' });
+    }
+    if (forge === true && !hasScope(user.scopes, token.scopes, 'dev')) {
+      return res.status(403).json({ error: 'Insufficient permissions to edit forge packages.' });
+    }
+    if (buildSystem === 'custom' && !hasScope(user.scopes, token.scopes, 'dev')) {
+      return res.status(403).json({ error: 'Insufficient permissions to edit custom build systems.' });
+    }
+    if (dependencies !== undefined && !Array.isArray(dependencies)) {
+      return res.status(400).json({ error: 'Dependencies must be an array when provided.' });
+    }
+
+    const packages = client.db(DB_NAME).collection<Package>('packages');
+    const existing = await packages.findOne({ name, version });
+    if (!existing) {
+      return res.status(404).json({ error: 'Package not found.' });
+    }
+    if (!existing.owner.equals(user._id) && !user.scopes.includes('admin')) {
+      return res.status(403).json({ error: 'You do not have permission to edit this package.' });
+    }
+
+    const update: Partial<Package> = {
+      buildSystem,
+      dependencies,
+      forge: forge === true,
+      uploadedAt: new Date(),
+    };
+    const buildFlags = req.body.buildFlags;
+    const sourceDir = req.body.sourceDir;
+    if (buildSystem === 'custom') {
+      if (!validateCustomScript(req.body.customBuildScript) ||
+          !validateCustomScript(req.body.customInstallScript) ||
+          (req.body.customUninstallScript !== undefined && !validateCustomScript(req.body.customUninstallScript))) {
+        return res.status(400).json({ error: 'Invalid custom build script.' });
+      }
+      update.buildSetup = {
+        buildScript: req.body.customBuildScript,
+        installScript: req.body.customInstallScript,
+        uninstallScript: req.body.customUninstallScript || '',
+      };
+    } else if (buildSystem === 'cmake' || buildSystem === 'make' || buildSystem === 'meson') {
+      if (!validateBuildFlags(buildFlags) || !validateSourceDir(sourceDir)) {
+        return res.status(400).json({ error: 'Invalid build flags or source directory.' });
+      }
+      const flags = typeof buildFlags === 'string' ? buildFlags.trim() : '';
+      const prefix = forge === true ? '$ALUMINIUM_INSTALL_DIR' : '$HOME/.aluminium/install/' + name;
+      if (buildSystem === 'cmake') {
+        update.buildSetup = {
+          sourceCodeUrl: typeof sourceDir === 'string' ? sourceDir : '',
+          buildScript: `cmake -B build ${flags} -DCMAKE_INSTALL_PREFIX="${prefix}" -S . && cmake --build build`,
+          installScript: forge === true ? 'cmake --install build' : `cmake --install build && cp build/install_manifest.txt "$HOME/.aluminium/install/${name}/install_manifest.txt"`,
+          uninstallScript: forge === true ? '' : `xargs rm -f < "$HOME/.aluminium/install/${name}/install_manifest.txt" && rm -rf "$HOME/.aluminium/install/${name}"`,
+        };
+      } else if (buildSystem === 'make') {
+        update.buildSetup = {
+          sourceCodeUrl: typeof sourceDir === 'string' ? sourceDir : '',
+          buildScript: `mkdir -p build && cd build && ../configure ${flags} --prefix="${prefix}" && JOBS=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 2) && make -j "$JOBS"`,
+          installScript: 'cd build && make install',
+          uninstallScript: forge === true ? '' : `rm -rf "$HOME/.aluminium/install/${name}"`,
+        };
+      } else {
+        update.buildSetup = {
+          sourceCodeUrl: typeof sourceDir === 'string' ? sourceDir : '',
+          buildScript: `meson setup build ${flags} --prefix="${prefix}" && meson compile -C build`,
+          installScript: 'meson install -C build',
+          uninstallScript: forge === true ? '' : `rm -rf "$HOME/.aluminium/install/${name}"`,
+        };
+      }
+    } else {
+      delete update.buildSetup;
+    }
+
+    await packages.updateOne({ _id: existing._id }, { $set: update, $unset: { buildSetup: update.buildSetup ? '' : 1 } });
+    return res.status(200).json({ message: 'Package updated successfully.' });
   } catch (error) {
     next(error);
   }

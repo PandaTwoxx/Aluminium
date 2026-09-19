@@ -17,6 +17,10 @@ export function validateBuildFlags(value: unknown): value is string {
   return value === undefined || (typeof value === 'string' && SAFE_BUILD_FLAGS_REGEX.test(value));
 }
 
+export function validateCustomScript(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= 20000 && !SHELL_META_REGEX.test(value);
+}
+
 export function validateSourceDir(value: unknown): value is string {
   if (value === undefined) {
     return true;
