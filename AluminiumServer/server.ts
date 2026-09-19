@@ -9,7 +9,6 @@ import {
   validatePackageVersion,
   validateBuildFlags,
   validateSourceDir,
-  validateCustomScript,
   isValidBuildSystem,
 } from './buildValidation.js';
 
@@ -703,9 +702,6 @@ app.post('/api/registerPackage', async (req: Request, res: Response, next: NextF
 
     if (buildSystem === 'custom') {
       const { customBuildScript, customInstallScript, customUninstallScript } = req.body;
-      if (!validateCustomScript(customBuildScript) || !validateCustomScript(customInstallScript) || !validateCustomScript(customUninstallScript)) {
-        return res.status(400).json({ error: 'Custom build scripts contain unsafe shell characters or are malformed.' });
-      }
       packagePayload.buildSetup = {
         buildScript: customBuildScript,
         installScript: customInstallScript,

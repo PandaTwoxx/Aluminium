@@ -38,16 +38,6 @@ function containsAbsolutePath(value: string): boolean {
   return /(^|\s)\//.test(value);
 }
 
-export function validateCustomScript(value: unknown): value is string {
-  return typeof value === 'string'
-    && value.length > 0
-    && value.length <= 2000
-    && !SHELL_META_REGEX.test(value)
-    && !/\r|\n/.test(value)
-    && !value.includes('..')
-    && !containsAbsolutePath(value);
-}
-
 export function isValidBuildSystem(value: unknown): value is 'cmake' | 'make' | 'meson' | 'custom' | 'none' {
   return typeof value === 'string' && VALID_BUILD_SYSTEMS.includes(value as 'cmake' | 'make' | 'meson' | 'custom' | 'none');
 }
