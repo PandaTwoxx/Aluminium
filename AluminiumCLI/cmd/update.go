@@ -76,6 +76,7 @@ var alumUpdateCmd = &cobra.Command{
 // ─── aluminium upgrade ───────────────────────────────────────────────────────
 
 var upgradeAllFlag bool
+var upgradeVerboseFlag bool
 
 var alumUpgradeCmd = &cobra.Command{
 	Use:   "upgrade [package...]",
@@ -212,7 +213,7 @@ specified packages (and their dependencies) are considered.`,
 			if existing, ok := state.Packages[pkgName]; ok {
 				outputDir = existing.InstallDir
 			}
-			if err := install.InstallSinglePackage(node, api, cfg, state, outputDir); err != nil {
+			if err := install.InstallSinglePackage(node, api, cfg, state, outputDir, upgradeVerboseFlag); err != nil {
 				fmt.Printf("Failed to upgrade %s: %v\n", pkgName, err)
 				os.Exit(1)
 			}
@@ -225,6 +226,7 @@ specified packages (and their dependencies) are considered.`,
 
 func init() {
 	alumUpgradeCmd.Flags().BoolVarP(&upgradeAllFlag, "all", "a", false, "Upgrade all installed packages (default when no args given)")
+	alumUpgradeCmd.Flags().BoolVar(&upgradeVerboseFlag, "verbose", false, "Show full build and install command output")
 	rootCmd.AddCommand(alumUpdateCmd)
 	rootCmd.AddCommand(alumUpgradeCmd)
 }

@@ -15,6 +15,7 @@ import (
 
 var forceInstallFlag bool
 var installOutputFlag string
+var installVerboseFlag bool
 
 var installCmd = &cobra.Command{
 	Use:   "install [package_spec...]",
@@ -88,7 +89,7 @@ var installCmd = &cobra.Command{
 			}
 
 			fmt.Printf("Installing %s@%s from %s...\n", node.Name, node.Version, node.ServerURL)
-			err := install.InstallSinglePackage(node, api, cfg, installedState, installOutputFlag)
+			err := install.InstallSinglePackage(node, api, cfg, installedState, installOutputFlag, installVerboseFlag)
 			if err != nil {
 				fmt.Printf("Failed to install package %s: %v\n", pkgName, err)
 				os.Exit(1)
@@ -103,5 +104,6 @@ var installCmd = &cobra.Command{
 func init() {
 	installCmd.Flags().BoolVarP(&forceInstallFlag, "force", "f", false, "Force reinstall even if package is already installed")
 	installCmd.Flags().StringVar(&installOutputFlag, "output", "", "Output directory for forge packages")
+	installCmd.Flags().BoolVar(&installVerboseFlag, "verbose", false, "Show full build and install command output")
 	rootCmd.AddCommand(installCmd)
 }

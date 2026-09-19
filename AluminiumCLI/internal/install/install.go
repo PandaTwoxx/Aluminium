@@ -2,6 +2,7 @@ package install
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"encoding/json"
 	"errors"
@@ -309,10 +310,11 @@ func checkBuildSystem(buildSystem string) error {
 }
 
 func runScript(scriptContent, workingDir string) error {
-	return runScriptWithEnv(scriptContent, workingDir, false, "")
+	_, err := runScriptWithEnv(scriptContent, workingDir, false, "", true)
+	return err
 }
 
-func runScriptWithEnv(scriptContent, workingDir string, forge bool, installDir string) error {
+func runScriptWithEnv(scriptContent, workingDir string, forge bool, installDir string, verbose bool) ([]string, error) {
 	scriptPath := filepath.Join(workingDir, "run_setup.sh")
 	const envSource = `if [ -f "$HOME/.aluminium/env" ]; then
   source "$HOME/.aluminium/env"
@@ -320,18 +322,28 @@ fi
 `
 	err := os.WriteFile(scriptPath, []byte("#!/bin/bash\n"+envSource+scriptContent+"\n"), 0755)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer os.Remove(scriptPath)
 
 	cmd := exec.Command("bash", "run_setup.sh")
 	cmd.Dir = workingDir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	var output bytes.Buffer
+	if verbose {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	} else {
+		cmd.Stdout = &output
+		cmd.Stderr = &output
+	}
 	if forge {
 		cmd.Env = append(os.Environ(), "ALUMINIUM_INSTALL_DIR="+installDir)
 	}
-	return cmd.Run()
+	err = cmd.Run()
+	if output.Len() == 0 {
+		return nil, err
+	}
+	return strings.Split(strings.TrimRight(output.String(), "\n"), "\n"), err
 }
 
 func extractTarGz(gzipStream io.Reader, destDir string) error {
@@ -419,31 +431,77 @@ func downloadAndExtractSourceArchive(sourceURL, destDir string) error {
 	return extractTarGz(file, destDir)
 }
 
-func prepareSourceWorkspace(sourceURL, workspaceDir string) (string, error) {
+func prepareSourceWorkspace(sourceURL, workspaceDir string, verbose bool) (string, []string, error) {
 	if isArchiveSourceURL(sourceURL) {
 		if err := downloadAndExtractSourceArchive(sourceURL, workspaceDir); err != nil {
-			return "", err
+			return "", nil, err
 		}
 		entries, err := os.ReadDir(workspaceDir)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 		if len(entries) == 1 && entries[0].IsDir() {
-			return filepath.Join(workspaceDir, entries[0].Name()), nil
+			return filepath.Join(workspaceDir, entries[0].Name()), nil, nil
 		}
-		return workspaceDir, nil
+		return workspaceDir, nil, nil
 	}
 
 	cmd := exec.Command("git", "clone", sourceURL, workspaceDir)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return "", err
+	var output bytes.Buffer
+	if verbose {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	} else {
+		cmd.Stdout = &output
+		cmd.Stderr = &output
 	}
-	return workspaceDir, nil
+	if err := cmd.Run(); err != nil {
+		return "", strings.Split(strings.TrimRight(output.String(), "\n"), "\n"), err
+	}
+	return workspaceDir, strings.Split(strings.TrimRight(output.String(), "\n"), "\n"), nil
 }
 
-func InstallSinglePackage(node *graph.Node, api *client.APIClient, cfg *config.Config, state *InstalledState, outputDir string) error {
+type buildProgress struct {
+	steps []string
+	logs  []string
+}
+
+func newBuildProgress() *buildProgress {
+	return &buildProgress{steps: []string{"Pulling source code", "Building", "Installing"}}
+}
+
+func (p *buildProgress) show() {
+	fmt.Println("Source build:")
+	for _, step := range p.steps {
+		fmt.Printf("  [ ] %s\n", step)
+	}
+}
+
+func (p *buildProgress) complete(index int) {
+	fmt.Printf("  [x] %s\n", p.steps[index])
+}
+
+func (p *buildProgress) log(lines []string) {
+	for _, line := range lines {
+		lower := strings.ToLower(line)
+		if strings.TrimSpace(line) != "" && (strings.Contains(lower, "warning") || strings.Contains(lower, "error") || strings.Contains(lower, "failed") || strings.Contains(lower, "failure")) {
+			p.logs = append(p.logs, line)
+		}
+	}
+}
+
+func (p *buildProgress) showLogs() {
+	if len(p.logs) == 0 {
+		return
+	}
+	fmt.Println("\n+---------------- build warnings/errors ----------------+")
+	for _, line := range p.logs {
+		fmt.Printf("| %s\n", line)
+	}
+	fmt.Println("+-------------------------------------------------------+")
+}
+
+func InstallSinglePackage(node *graph.Node, api *client.APIClient, cfg *config.Config, state *InstalledState, outputDir string, verbose bool) error {
 	configDir, err := config.GetConfigDir()
 	if err != nil {
 		return err
@@ -523,29 +581,41 @@ func InstallSinglePackage(node *graph.Node, api *client.APIClient, cfg *config.C
 	defer os.RemoveAll(buildDir)
 
 	workingDir := buildDir
+	progress := newBuildProgress()
+	progress.show()
 	if node.BuildSetup.SourceCodeURL != "" {
-		fmt.Printf("Fetching source code from %s...\n", node.BuildSetup.SourceCodeURL)
-		preparedDir, err := prepareSourceWorkspace(node.BuildSetup.SourceCodeURL, buildDir)
+		preparedDir, output, err := prepareSourceWorkspace(node.BuildSetup.SourceCodeURL, buildDir, verbose)
+		progress.log(output)
 		if err != nil {
-			fmt.Printf("Warning: failed to prepare source workspace: %v. Proceeding to run build script in workspace.\n", err)
+			progress.log([]string{fmt.Sprintf("Warning: failed to prepare source workspace: %v. Proceeding to run build script in workspace.", err)})
 		} else {
 			workingDir = preparedDir
 		}
 	}
+	progress.complete(0)
 
 	if node.BuildSetup.BuildScript != "" {
-		fmt.Println("Running build script...")
-		if err := runScriptWithEnv(node.BuildSetup.BuildScript, workingDir, node.Forge, destDir); err != nil {
+		output, err := runScriptWithEnv(node.BuildSetup.BuildScript, workingDir, node.Forge, destDir, verbose)
+		progress.log(output)
+		progress.complete(1)
+		if err != nil {
+			progress.log([]string{fmt.Sprintf("Error: %v", err)})
+			progress.showLogs()
 			return fmt.Errorf("build failed: %w", err)
 		}
 	}
 
 	if node.BuildSetup.InstallScript != "" {
-		fmt.Println("Running install script...")
-		if err := runScriptWithEnv(node.BuildSetup.InstallScript, workingDir, node.Forge, destDir); err != nil {
+		output, err := runScriptWithEnv(node.BuildSetup.InstallScript, workingDir, node.Forge, destDir, verbose)
+		progress.log(output)
+		progress.complete(2)
+		if err != nil {
+			progress.log([]string{fmt.Sprintf("Error: %v", err)})
+			progress.showLogs()
 			return fmt.Errorf("install failed: %w", err)
 		}
 	}
+	progress.showLogs()
 
 	state.Packages[node.Name] = InstalledPackage{
 		Version: node.Version,
