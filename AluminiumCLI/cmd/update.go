@@ -208,7 +208,11 @@ specified packages (and their dependencies) are considered.`,
 				fmt.Printf("Installing dependency %s@%s from %s...\n", pkgName, node.Version, node.ServerURL)
 			}
 
-			if err := install.InstallSinglePackage(node, api, cfg, state); err != nil {
+			outputDir := ""
+			if existing, ok := state.Packages[pkgName]; ok {
+				outputDir = existing.InstallDir
+			}
+			if err := install.InstallSinglePackage(node, api, cfg, state, outputDir); err != nil {
 				fmt.Printf("Failed to upgrade %s: %v\n", pkgName, err)
 				os.Exit(1)
 			}
