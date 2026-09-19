@@ -314,6 +314,28 @@ func runScript(scriptContent, workingDir string) error {
 	return err
 }
 
+func aluminiumEnvironment() []string {
+	envPath, err := config.GetConfigDir()
+	if err != nil {
+		return os.Environ()
+	}
+	envFile := filepath.Join(envPath, "env")
+	if _, err := os.Stat(envFile); err != nil {
+		return os.Environ()
+	}
+
+	cmd := exec.Command("bash", "-c", "source \"$1\" >/dev/null 2>&1 && env -0", "aluminium-env", envFile)
+	output, err := cmd.Output()
+	if err != nil {
+		return os.Environ()
+	}
+	values := strings.Split(strings.TrimRight(string(output), "\x00"), "\x00")
+	if len(values) == 0 {
+		return os.Environ()
+	}
+	return values
+}
+
 func runScriptWithEnv(scriptContent, workingDir string, forge bool, installDir string, verbose bool) ([]string, error) {
 	scriptPath := filepath.Join(workingDir, "run_setup.sh")
 	const envSource = `if [ -f "$HOME/.aluminium/env" ]; then
@@ -336,8 +358,9 @@ fi
 		cmd.Stdout = &output
 		cmd.Stderr = &output
 	}
+	cmd.Env = aluminiumEnvironment()
 	if forge {
-		cmd.Env = append(os.Environ(), "ALUMINIUM_INSTALL_DIR="+installDir)
+		cmd.Env = append(cmd.Env, "ALUMINIUM_INSTALL_DIR="+installDir)
 	}
 	err = cmd.Run()
 	if output.Len() == 0 {
@@ -483,9 +506,11 @@ func (p *buildProgress) complete(index int) {
 
 func (p *buildProgress) log(lines []string) {
 	for _, line := range lines {
-		lower := strings.ToLower(line)
-		if strings.TrimSpace(line) != "" && (strings.Contains(lower, "warning") || strings.Contains(lower, "error") || strings.Contains(lower, "failed") || strings.Contains(lower, "failure")) {
+		if strings.TrimSpace(line) != "" {
 			p.logs = append(p.logs, line)
+			if len(p.logs) > 5 {
+				p.logs = p.logs[len(p.logs)-5:]
+			}
 		}
 	}
 }
@@ -494,7 +519,7 @@ func (p *buildProgress) showLogs() {
 	if len(p.logs) == 0 {
 		return
 	}
-	fmt.Println("\n+---------------- build warnings/errors ----------------+")
+	fmt.Println("\n+---------------- latest build logs --------------------+")
 	for _, line := range p.logs {
 		fmt.Printf("| %s\n", line)
 	}
