@@ -100,7 +100,7 @@ func PackageOperation(defaults PackageOperationInput, needFile, needOutput bool)
 	if needOutput {
 		fields = append(fields, huh.NewInput().Title("Output file").Value(&result.Output).Validate(requiredValue("output file")))
 	}
-	if err := huh.NewForm(huh.NewGroup(fields...)).Title("Package operation").Run(); err != nil {
+	if err := huh.NewForm(huh.NewGroup(fields...).Title("Package operation")).Run(); err != nil {
 		return nil, err
 	}
 	return &result, nil
