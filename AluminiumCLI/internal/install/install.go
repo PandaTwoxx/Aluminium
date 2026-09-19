@@ -19,6 +19,7 @@ import (
 	"github.com/PandaTwoxx/Aluminium/internal/config"
 	"github.com/PandaTwoxx/Aluminium/internal/graph"
 	"github.com/PandaTwoxx/Aluminium/internal/prompt"
+	"golang.org/x/term"
 )
 
 type InstalledPackage struct {
@@ -485,23 +486,57 @@ func prepareSourceWorkspace(sourceURL, workspaceDir string, verbose bool) (strin
 }
 
 type buildProgress struct {
-	steps []string
-	logs  []string
+	steps         []string
+	statuses      []string
+	logs          []string
+	lastRenderRows int
+	tty           bool
 }
 
 func newBuildProgress() *buildProgress {
-	return &buildProgress{steps: []string{"Pulling source code", "Building", "Installing"}}
-}
-
-func (p *buildProgress) show() {
-	fmt.Println("Source build:")
-	for _, step := range p.steps {
-		fmt.Printf("  [ ] %s\n", step)
+	return &buildProgress{
+		steps:    []string{"Pulling source code", "Build package", "Install package"},
+		statuses: []string{" ", " ", " "},
+		tty:      term.IsTerminal(int(os.Stdout.Fd())),
 	}
 }
 
-func (p *buildProgress) complete(index int) {
-	fmt.Printf("  [x] %s\n", p.steps[index])
+func (p *buildProgress) render() {
+	const innerWidth = 68
+	lines := []string{
+		"+------------------------------------------------------------------+",
+		p.panelLine("Source build", innerWidth),
+		p.panelLine("", innerWidth),
+	}
+	for index, step := range p.steps {
+		lines = append(lines, p.panelLine(fmt.Sprintf("[%s] %s", p.statuses[index], step), innerWidth))
+	}
+	lines = append(lines,
+		p.panelLine("", innerWidth),
+		p.panelLine("Latest logs (last 5 lines)", innerWidth),
+	)
+	for index := 0; index < 5; index++ {
+		line := ""
+		if index < len(p.logs) {
+			line = p.logs[index]
+		}
+		lines = append(lines, p.panelLine(line, innerWidth))
+	}
+	lines = append(lines, "+------------------------------------------------------------------+")
+
+	if p.tty && p.lastRenderRows > 0 {
+		fmt.Printf("\033[%dA\033[J", p.lastRenderRows)
+	}
+	fmt.Println(strings.Join(lines, "\n"))
+	p.lastRenderRows = len(lines)
+}
+
+func (p *buildProgress) panelLine(content string, width int) string {
+	content = strings.ReplaceAll(strings.ReplaceAll(content, "\r", ""), "\n", " ")
+	if len(content) > width-2 {
+		content = content[:width-5] + "..."
+	}
+	return fmt.Sprintf("| %-*s |", width-2, content)
 }
 
 func (p *buildProgress) log(lines []string) {
@@ -513,17 +548,26 @@ func (p *buildProgress) log(lines []string) {
 			}
 		}
 	}
+	p.render()
 }
 
-func (p *buildProgress) showLogs() {
-	if len(p.logs) == 0 {
-		return
-	}
-	fmt.Println("\n+---------------- latest build logs --------------------+")
-	for _, line := range p.logs {
-		fmt.Printf("| %s\n", line)
-	}
-	fmt.Println("+-------------------------------------------------------+")
+func (p *buildProgress) show() {
+	p.render()
+}
+
+func (p *buildProgress) start(index int) {
+	p.statuses[index] = "."
+	p.render()
+}
+
+func (p *buildProgress) complete(index int) {
+	p.statuses[index] = "x"
+	p.render()
+}
+
+func (p *buildProgress) fail(index int) {
+	p.statuses[index] = "!"
+	p.render()
 }
 
 func InstallSinglePackage(node *graph.Node, api *client.APIClient, cfg *config.Config, state *InstalledState, outputDir string, verbose bool) error {
@@ -608,6 +652,7 @@ func InstallSinglePackage(node *graph.Node, api *client.APIClient, cfg *config.C
 	workingDir := buildDir
 	progress := newBuildProgress()
 	progress.show()
+	progress.start(0)
 	if node.BuildSetup.SourceCodeURL != "" {
 		preparedDir, output, err := prepareSourceWorkspace(node.BuildSetup.SourceCodeURL, buildDir, verbose)
 		progress.log(output)
@@ -620,27 +665,28 @@ func InstallSinglePackage(node *graph.Node, api *client.APIClient, cfg *config.C
 	progress.complete(0)
 
 	if node.BuildSetup.BuildScript != "" {
+		progress.start(1)
 		output, err := runScriptWithEnv(node.BuildSetup.BuildScript, workingDir, node.Forge, destDir, verbose)
 		progress.log(output)
-		progress.complete(1)
 		if err != nil {
 			progress.log([]string{fmt.Sprintf("Error: %v", err)})
-			progress.showLogs()
+			progress.fail(1)
 			return fmt.Errorf("build failed: %w", err)
 		}
+		progress.complete(1)
 	}
 
 	if node.BuildSetup.InstallScript != "" {
+		progress.start(2)
 		output, err := runScriptWithEnv(node.BuildSetup.InstallScript, workingDir, node.Forge, destDir, verbose)
 		progress.log(output)
-		progress.complete(2)
 		if err != nil {
 			progress.log([]string{fmt.Sprintf("Error: %v", err)})
-			progress.showLogs()
+			progress.fail(2)
 			return fmt.Errorf("install failed: %w", err)
 		}
+		progress.complete(2)
 	}
-	progress.showLogs()
 
 	state.Packages[node.Name] = InstalledPackage{
 		Version: node.Version,
