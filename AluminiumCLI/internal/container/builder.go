@@ -58,6 +58,13 @@ func GenerateDockerfile(spec *ContainerSpec, srcBaseDir string, buildCtxDir stri
 	sb.WriteString(fmt.Sprintf("FROM %s\n\n", spec.Image))
 	sb.WriteString("ENV DEBIAN_FRONTEND=noninteractive\n")
 	sb.WriteString("ENV PATH=\"/root/.aluminium/install/bin:/usr/local/bin:${PATH}\"\n")
+	sb.WriteString("ENV LD_LIBRARY_PATH=\"/root/.aluminium/install/lib:/root/.aluminium/install/lib64:${LD_LIBRARY_PATH}\"\n")
+	sb.WriteString("ENV CPATH=\"/root/.aluminium/install/include:${CPATH}\"\n")
+	sb.WriteString("ENV PKG_CONFIG_PATH=\"/root/.aluminium/install/lib/pkgconfig:/root/.aluminium/install/share/pkgconfig:${PKG_CONFIG_PATH}\"\n")
+	sb.WriteString("ENV CMAKE_PREFIX_PATH=\"/root/.aluminium/install:${CMAKE_PREFIX_PATH}\"\n")
+	sb.WriteString("ENV SSL_CERT_FILE=\"/etc/ssl/certs/ca-certificates.crt\"\n")
+	sb.WriteString("ENV REQUESTS_CA_BUNDLE=\"/etc/ssl/certs/ca-certificates.crt\"\n")
+	sb.WriteString("ENV SSL_CERT_DIR=\"/etc/ssl/certs\"\n")
 	sb.WriteString("WORKDIR /app\n\n")
 
 	// Helper layer to ensure basic tools exist (curl, ca-certificates, bash)

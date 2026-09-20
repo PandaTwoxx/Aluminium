@@ -48,7 +48,7 @@ func PackageSpecs() ([]string, error) {
 	var value string
 	err := huh.NewInput().
 		Title("Packages to install").
-		Description("Comma-separated package specs, for example zlib@1.2.11, openssl").
+		Description("Comma-separated package specs, for example pkgname@1.0.0, pkgname2").
 		Value(&value).
 		Validate(func(s string) error {
 			if strings.TrimSpace(s) == "" {

@@ -8,11 +8,11 @@ import (
 func TestParseACReader_Example(t *testing.T) {
 	input := `use source dockerhub
 use image ubuntu:latest
-use aluminium-packages: python3@3.14.3 node@25
+use aluminium-packages: libfoo@1.0 libbar@2.0
 
-copy local-python-file.py container-file.py
-wait package-installed python3@3.14.3
-run container-file.py
+copy local-file.sh container-file.sh
+wait package-installed libfoo@1.0
+run container-file.sh
 
 wait all-packages-installed
 run echo "this is a test script"
@@ -34,8 +34,8 @@ finalize`
 	if spec.Image != "ubuntu:latest" {
 		t.Errorf("expected Image ubuntu:latest, got %s", spec.Image)
 	}
-	if len(spec.AluminiumPackages) != 2 || spec.AluminiumPackages[0] != "python3@3.14.3" || spec.AluminiumPackages[1] != "node@25" {
-		t.Errorf("expected packages [python3@3.14.3 node@25], got %v", spec.AluminiumPackages)
+	if len(spec.AluminiumPackages) != 2 || spec.AluminiumPackages[0] != "libfoo@1.0" || spec.AluminiumPackages[1] != "libbar@2.0" {
+		t.Errorf("expected packages [libfoo@1.0 libbar@2.0], got %v", spec.AluminiumPackages)
 	}
 	if !spec.InteractiveShell {
 		t.Errorf("expected InteractiveShell true")
@@ -59,13 +59,13 @@ finalize`
 	if len(spec.Steps) != 5 {
 		t.Fatalf("expected 5 steps, got %d", len(spec.Steps))
 	}
-	if spec.Steps[0].Type != "copy" || spec.Steps[0].CopySrc != "local-python-file.py" || spec.Steps[0].CopyDest != "container-file.py" {
+	if spec.Steps[0].Type != "copy" || spec.Steps[0].CopySrc != "local-file.sh" || spec.Steps[0].CopyDest != "container-file.sh" {
 		t.Errorf("step 0 mismatch: %+v", spec.Steps[0])
 	}
-	if spec.Steps[1].Type != "wait" || spec.Steps[1].WaitType != "package-installed" || spec.Steps[1].WaitPackage != "python3@3.14.3" {
+	if spec.Steps[1].Type != "wait" || spec.Steps[1].WaitType != "package-installed" || spec.Steps[1].WaitPackage != "libfoo@1.0" {
 		t.Errorf("step 1 mismatch: %+v", spec.Steps[1])
 	}
-	if spec.Steps[2].Type != "run" || spec.Steps[2].RunCommand != "container-file.py" {
+	if spec.Steps[2].Type != "run" || spec.Steps[2].RunCommand != "container-file.sh" {
 		t.Errorf("step 2 mismatch: %+v", spec.Steps[2])
 	}
 	if spec.Steps[3].Type != "wait" || spec.Steps[3].WaitType != "all-packages-installed" {

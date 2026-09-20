@@ -87,8 +87,8 @@ func PackageRegister(defaults PackageRegisterInput) (*PackageRegisterInput, erro
 			Value(&result.BuildFlags),
 		huh.NewInput().
 			Title("Dependencies").
-			Description("Comma-separated package specs, e.g. zlib@1.2.11, openssl@3.0").
-			Placeholder("zlib@1.2.11").
+			Description("Comma-separated package specs, e.g. pkgname@1.0.0, pkgname2@2.0").
+			Placeholder("pkgname@1.0.0").
 			Value(&depsInput),
 	)
 

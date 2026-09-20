@@ -67,16 +67,10 @@ func TestCollectEnvPathsFromPackage(t *testing.T) {
 	}
 }
 
-func TestConfigureBuildScriptEnablesOpenSSLForPython(t *testing.T) {
-	script := "../configure --prefix=\"$HOME/.aluminium/install/python\" && make -j2"
-	configured := configureBuildScript("python", script)
-	if !strings.Contains(configured, `--with-openssl="$OPENSSL_ROOT_DIR"`) {
-		t.Fatalf("expected Python configure script to enable OpenSSL, got %q", configured)
-	}
-	if !strings.Contains(configured, "--with-openssl-rpath=auto") {
-		t.Fatalf("expected Python configure script to enable OpenSSL rpath, got %q", configured)
-	}
-	if configureBuildScript("openssl", script) != script {
-		t.Fatal("expected non-Python configure scripts to remain unchanged")
+func TestConfigureBuildScriptPassthrough(t *testing.T) {
+	script := "../configure --prefix=\"$HOME/.aluminium/install/libfoo\" && make -j2"
+	configured := configureBuildScript("libfoo", script)
+	if configured != script {
+		t.Fatalf("expected configureBuildScript to pass script through unchanged, got %q", configured)
 	}
 }

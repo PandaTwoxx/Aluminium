@@ -10,11 +10,11 @@ func TestGenerateDockerfile(t *testing.T) {
 	spec := &ContainerSpec{
 		Source:            "dockerhub",
 		Image:             "ubuntu:latest",
-		AluminiumPackages: []string{"python3@3.14.3", "node@25"},
+		AluminiumPackages: []string{"libfoo@1.0", "libbar@2.0"},
 		Steps: []BuildStep{
-			{Type: "copy", CopySrc: "local.py", CopyDest: "container.py"},
-			{Type: "wait", WaitType: "package-installed", WaitPackage: "python3@3.14.3"},
-			{Type: "run", RunCommand: "container.py"},
+			{Type: "copy", CopySrc: "local.sh", CopyDest: "container.sh"},
+			{Type: "wait", WaitType: "package-installed", WaitPackage: "libfoo@1.0"},
+			{Type: "run", RunCommand: "container.sh"},
 			{Type: "wait", WaitType: "all-packages-installed"},
 			{Type: "run", RunCommand: "echo hello"},
 		},
@@ -35,14 +35,14 @@ func TestGenerateDockerfile(t *testing.T) {
 	if !strings.Contains(content, "FROM ubuntu:latest") {
 		t.Errorf("expected FROM ubuntu:latest in Dockerfile")
 	}
-	if !strings.Contains(content, "COPY local.py container.py") {
+	if !strings.Contains(content, "COPY local.sh container.sh") {
 		t.Errorf("expected COPY step in Dockerfile")
 	}
-	if !strings.Contains(content, "apt-get install -y python3") {
-		t.Errorf("expected python3 package install in Dockerfile")
+	if !strings.Contains(content, "apt-get install -y libfoo") {
+		t.Errorf("expected libfoo package install in Dockerfile")
 	}
-	if !strings.Contains(content, "apt-get install -y node") {
-		t.Errorf("expected node package install in Dockerfile")
+	if !strings.Contains(content, "apt-get install -y libbar") {
+		t.Errorf("expected libbar package install in Dockerfile")
 	}
 	if !strings.Contains(content, "RUN echo hello") {
 		t.Errorf("expected RUN echo hello in Dockerfile")

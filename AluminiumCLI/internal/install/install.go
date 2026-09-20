@@ -84,6 +84,226 @@ var envVarOrder = []string{
 	"CPPFLAGS",
 	"LDFLAGS",
 	"OPENSSL_ROOT_DIR",
+	"SSL_CERT_FILE",
+	"SSL_CERT_DIR",
+	"REQUESTS_CA_BUNDLE",
+}
+
+var hostStripPrefixes = []string{
+	"/opt/homebrew",
+	"/home/linuxbrew",
+}
+
+func filterPathComponents(pathVal string, stripPrefixes []string) string {
+	if pathVal == "" {
+		return ""
+	}
+	parts := strings.Split(pathVal, ":")
+	var keep []string
+	for _, p := range parts {
+		if p == "" {
+			continue
+		}
+		strip := false
+		for _, prefix := range stripPrefixes {
+			if strings.HasPrefix(p, prefix) {
+				strip = true
+				break
+			}
+		}
+		if !strip {
+			keep = append(keep, p)
+		}
+	}
+	return strings.Join(keep, ":")
+}
+
+func SanitizeHostPaths(env []string, stripPrefixes []string) []string {
+	pathVars := map[string]bool{
+		"PATH":              true,
+		"LD_LIBRARY_PATH":   true,
+		"DYLD_LIBRARY_PATH": true,
+		"CPATH":             true,
+		"PKG_CONFIG_PATH":   true,
+		"CMAKE_PREFIX_PATH": true,
+	}
+
+	var res []string
+	for _, kv := range env {
+		parts := strings.SplitN(kv, "=", 2)
+		if len(parts) != 2 {
+			res = append(res, kv)
+			continue
+		}
+		key, val := parts[0], parts[1]
+		if pathVars[key] {
+			cleaned := filterPathComponents(val, stripPrefixes)
+			if cleaned != "" {
+				res = append(res, key+"="+cleaned)
+			}
+		} else {
+			res = append(res, kv)
+		}
+	}
+	return res
+}
+
+func findSSLCertBundle(installBase string) (string, string) {
+	// 1. Search in installed packages under installBase
+	entries, err := os.ReadDir(installBase)
+	if err == nil {
+		for _, entry := range entries {
+			pkgDir := filepath.Join(installBase, entry.Name())
+			candidateFile := filepath.Join(pkgDir, "etc", "ssl", "cert.pem")
+			if _, err := os.Stat(candidateFile); err == nil {
+				candidateDir := filepath.Join(pkgDir, "etc", "ssl", "certs")
+				if _, err := os.Stat(candidateDir); err != nil {
+					candidateDir = filepath.Dir(candidateFile)
+				}
+				return candidateFile, candidateDir
+			}
+			candidateFile = filepath.Join(pkgDir, "etc", "ssl", "certs", "ca-certificates.crt")
+			if _, err := os.Stat(candidateFile); err == nil {
+				return candidateFile, filepath.Dir(candidateFile)
+			}
+			candidateDir := filepath.Join(pkgDir, "etc", "ssl", "certs")
+			if info, err := os.Stat(candidateDir); err == nil && info.IsDir() {
+				return "", candidateDir
+			}
+		}
+	}
+
+	// 2. Standard system locations
+	systemCertFiles := []string{
+		"/etc/ssl/cert.pem",
+		"/etc/ssl/certs/ca-certificates.crt",
+		"/etc/pki/tls/cert.pem",
+		"/etc/pki/tls/certs/ca-bundle.crt",
+	}
+	for _, certFile := range systemCertFiles {
+		if _, err := os.Stat(certFile); err == nil {
+			certDir := filepath.Dir(certFile)
+			if info, err := os.Stat("/etc/ssl/certs"); err == nil && info.IsDir() {
+				certDir = "/etc/ssl/certs"
+			}
+			return certFile, certDir
+		}
+	}
+
+	systemCertDirs := []string{
+		"/etc/ssl/certs",
+		"/etc/pki/tls/certs",
+	}
+	for _, certDir := range systemCertDirs {
+		if info, err := os.Stat(certDir); err == nil && info.IsDir() {
+			return "", certDir
+		}
+	}
+
+	return "", ""
+}
+
+func dedupe(slice []string) []string {
+	seen := make(map[string]bool)
+	var res []string
+	for _, item := range slice {
+		if item != "" && !seen[item] {
+			seen[item] = true
+			res = append(res, item)
+		}
+	}
+	return res
+}
+
+func buildEnv(configDir string, state *InstalledState) []string {
+	installBase := filepath.Join(configDir, "install")
+
+	collected := map[string][]string{
+		"PATH":              {},
+		"LD_LIBRARY_PATH":   {},
+		"DYLD_LIBRARY_PATH": {},
+		"CPATH":             {},
+		"PKG_CONFIG_PATH":   {},
+		"CMAKE_PREFIX_PATH": {},
+		"CPPFLAGS":          {},
+		"LDFLAGS":           {},
+		"OPENSSL_ROOT_DIR":  {},
+	}
+
+	for pkgName := range state.Packages {
+		pkgDir := filepath.Join(installBase, pkgName)
+		if state.Packages[pkgName].InstallDir != "" {
+			pkgDir = state.Packages[pkgName].InstallDir
+		}
+		for envVar, pkgPaths := range collectEnvPathsFromPackage(pkgDir) {
+			collected[envVar] = append(collected[envVar], pkgPaths...)
+		}
+		collected["CMAKE_PREFIX_PATH"] = append(collected["CMAKE_PREFIX_PATH"], pkgDir)
+		if _, err := os.Stat(filepath.Join(pkgDir, "include", "openssl")); err == nil {
+			collected["OPENSSL_ROOT_DIR"] = append(collected["OPENSSL_ROOT_DIR"], pkgDir)
+		}
+		if _, err := os.Stat(filepath.Join(pkgDir, "include")); err == nil {
+			collected["CPPFLAGS"] = append(collected["CPPFLAGS"], "-I"+filepath.Join(pkgDir, "include"))
+		}
+		for _, libDir := range []string{"lib", "lib64"} {
+			if _, err := os.Stat(filepath.Join(pkgDir, libDir)); err == nil {
+				collected["LDFLAGS"] = append(collected["LDFLAGS"], "-L"+filepath.Join(pkgDir, libDir))
+			}
+		}
+	}
+
+	// Safe environment variables to pass through from host
+	safeVars := map[string]bool{
+		"HOME": true, "USER": true, "LOGNAME": true, "SHELL": true,
+		"TERM": true, "LANG": true, "LC_ALL": true, "LC_CTYPE": true,
+		"TMPDIR": true, "TZ": true, "CC": true, "CXX": true, "AR": true,
+		"MAKE": true, "CMAKE": true,
+	}
+
+	var cleanEnv []string
+	for _, kv := range os.Environ() {
+		parts := strings.SplitN(kv, "=", 2)
+		if len(parts) == 2 && safeVars[parts[0]] {
+			cleanEnv = append(cleanEnv, kv)
+		}
+	}
+
+	// Include PATH from host, but sanitize host brew paths
+	hostPath := os.Getenv("PATH")
+	if hostPath != "" {
+		sanitizedHostPath := filterPathComponents(hostPath, hostStripPrefixes)
+		if sanitizedHostPath != "" {
+			collected["PATH"] = append(collected["PATH"], sanitizedHostPath)
+		}
+	}
+
+	for _, varName := range []string{"PATH", "LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "CPATH", "PKG_CONFIG_PATH", "CMAKE_PREFIX_PATH"} {
+		paths := dedupe(collected[varName])
+		if len(paths) > 0 {
+			cleanEnv = append(cleanEnv, varName+"="+strings.Join(paths, ":"))
+		}
+	}
+
+	if flags := dedupe(collected["CPPFLAGS"]); len(flags) > 0 {
+		cleanEnv = append(cleanEnv, "CPPFLAGS="+strings.Join(flags, " "))
+	}
+	if flags := dedupe(collected["LDFLAGS"]); len(flags) > 0 {
+		cleanEnv = append(cleanEnv, "LDFLAGS="+strings.Join(flags, " "))
+	}
+	if roots := dedupe(collected["OPENSSL_ROOT_DIR"]); len(roots) > 0 {
+		cleanEnv = append(cleanEnv, "OPENSSL_ROOT_DIR="+roots[0])
+	}
+
+	certFile, certDir := findSSLCertBundle(installBase)
+	if certFile != "" {
+		cleanEnv = append(cleanEnv, "SSL_CERT_FILE="+certFile)
+		cleanEnv = append(cleanEnv, "REQUESTS_CA_BUNDLE="+certFile)
+	}
+	if certDir != "" {
+		cleanEnv = append(cleanEnv, "SSL_CERT_DIR="+certDir)
+	}
+
+	return cleanEnv
 }
 
 func envVarsForInstallDir(rel string) []string {
@@ -257,7 +477,7 @@ func RegenerateEnvFile(state *InstalledState) error {
 			collected[envVar] = append(collected[envVar], pkgPaths...)
 		}
 		collected["CMAKE_PREFIX_PATH"] = append(collected["CMAKE_PREFIX_PATH"], pkgDir)
-		if pkgName == "openssl" {
+		if _, err := os.Stat(filepath.Join(pkgDir, "include", "openssl")); err == nil {
 			collected["OPENSSL_ROOT_DIR"] = []string{pkgDir}
 		}
 		if _, err := os.Stat(filepath.Join(pkgDir, "include")); err == nil {
@@ -270,6 +490,17 @@ func RegenerateEnvFile(state *InstalledState) error {
 		}
 	}
 
+	// Also scan top-level install/ directory for flat installs
+	for envVar, pkgPaths := range collectEnvPathsFromPackage(installBase) {
+		collected[envVar] = append(collected[envVar], pkgPaths...)
+	}
+
+	for k, v := range collected {
+		collected[k] = dedupe(v)
+	}
+
+	certFile, certDir := findSSLCertBundle(installBase)
+
 	var sb strings.Builder
 	sb.WriteString("# Aluminium package manager environment\n")
 	sb.WriteString("# Auto-generated — do not edit manually.\n")
@@ -278,6 +509,18 @@ func RegenerateEnvFile(state *InstalledState) error {
 
 	for _, envVar := range envVarOrder {
 		paths := collected[envVar]
+		if envVar == "SSL_CERT_FILE" || envVar == "REQUESTS_CA_BUNDLE" {
+			if certFile != "" {
+				sb.WriteString(fmt.Sprintf("export %s=\"%s\"\n", envVar, certFile))
+			}
+			continue
+		}
+		if envVar == "SSL_CERT_DIR" {
+			if certDir != "" {
+				sb.WriteString(fmt.Sprintf("export %s=\"%s\"\n", envVar, certDir))
+			}
+			continue
+		}
 		if len(paths) == 0 {
 			continue
 		}
@@ -375,25 +618,15 @@ func runScript(scriptContent, workingDir string) error {
 }
 
 func aluminiumEnvironment() []string {
-	envPath, err := config.GetConfigDir()
+	configDir, err := config.GetConfigDir()
 	if err != nil {
 		return os.Environ()
 	}
-	envFile := filepath.Join(envPath, "env")
-	if _, err := os.Stat(envFile); err != nil {
-		return os.Environ()
-	}
-
-	cmd := exec.Command("bash", "-c", "source \"$1\" >/dev/null 2>&1 && env -0", "aluminium-env", envFile)
-	output, err := cmd.Output()
+	state, err := LoadInstalledState()
 	if err != nil {
-		return os.Environ()
+		state = &InstalledState{Packages: make(map[string]InstalledPackage)}
 	}
-	values := strings.Split(strings.TrimRight(string(output), "\x00"), "\x00")
-	if len(values) == 0 {
-		return os.Environ()
-	}
-	return values
+	return buildEnv(configDir, state)
 }
 
 func runScriptWithEnv(scriptContent, workingDir string, forge bool, installDir string, verbose bool, onLine func(string)) error {
@@ -418,17 +651,6 @@ fi
 }
 
 func configureBuildScript(packageName, script string) string {
-	if packageName != "python" && packageName != "python3" {
-		return script
-	}
-	if !strings.Contains(script, "configure") || strings.Contains(script, "--with-openssl") {
-		return script
-	}
-	for _, command := range []string{"./configure ", "../configure "} {
-		if strings.Contains(script, command) {
-			return strings.Replace(script, command, command[:len(command)-1]+" --with-openssl=\"$OPENSSL_ROOT_DIR\" --with-openssl-rpath=auto ", 1)
-		}
-	}
 	return script
 }
 
