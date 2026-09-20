@@ -66,3 +66,17 @@ func TestCollectEnvPathsFromPackage(t *testing.T) {
 		t.Fatalf("expected lib/pkgconfig in PKG_CONFIG_PATH, got %v", paths["PKG_CONFIG_PATH"])
 	}
 }
+
+func TestConfigureBuildScriptEnablesOpenSSLForPython(t *testing.T) {
+	script := "../configure --prefix=\"$HOME/.aluminium/install/python\" && make -j2"
+	configured := configureBuildScript("python", script)
+	if !strings.Contains(configured, `--with-openssl="$OPENSSL_ROOT_DIR"`) {
+		t.Fatalf("expected Python configure script to enable OpenSSL, got %q", configured)
+	}
+	if !strings.Contains(configured, "--with-openssl-rpath=auto") {
+		t.Fatalf("expected Python configure script to enable OpenSSL rpath, got %q", configured)
+	}
+	if configureBuildScript("openssl", script) != script {
+		t.Fatal("expected non-Python configure scripts to remain unchanged")
+	}
+}

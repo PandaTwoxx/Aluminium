@@ -417,6 +417,21 @@ fi
 	return streamCommand(cmd, verbose, onLine)
 }
 
+func configureBuildScript(packageName, script string) string {
+	if packageName != "python" && packageName != "python3" {
+		return script
+	}
+	if !strings.Contains(script, "configure") || strings.Contains(script, "--with-openssl") {
+		return script
+	}
+	for _, command := range []string{"./configure ", "../configure "} {
+		if strings.Contains(script, command) {
+			return strings.Replace(script, command, command[:len(command)-1]+" --with-openssl=\"$OPENSSL_ROOT_DIR\" --with-openssl-rpath=auto ", 1)
+		}
+	}
+	return script
+}
+
 func extractTarGz(gzipStream io.Reader, destDir string) error {
 	uncompressedStream, err := gzip.NewReader(gzipStream)
 	if err != nil {
@@ -713,7 +728,8 @@ func InstallSinglePackage(node *graph.Node, api *client.APIClient, cfg *config.C
 
 	if node.BuildSetup.BuildScript != "" {
 		progress.start(1)
-		err := runScriptWithEnv(node.BuildSetup.BuildScript, workingDir, node.Forge, destDir, verbose, func(line string) { progress.log([]string{line}) })
+		buildScript := configureBuildScript(node.Name, node.BuildSetup.BuildScript)
+		err := runScriptWithEnv(buildScript, workingDir, node.Forge, destDir, verbose, func(line string) { progress.log([]string{line}) })
 		if err != nil {
 			progress.log([]string{fmt.Sprintf("Error: %v", err)})
 			progress.fail(1)
