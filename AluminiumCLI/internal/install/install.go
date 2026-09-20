@@ -2,7 +2,7 @@ package install
 
 import (
 	"archive/tar"
-	"bytes"
+	"bufio"
 	"compress/gzip"
 	"encoding/json"
 	"errors"
@@ -80,6 +80,10 @@ var envVarOrder = []string{
 	"DYLD_LIBRARY_PATH",
 	"CPATH",
 	"PKG_CONFIG_PATH",
+	"CMAKE_PREFIX_PATH",
+	"CPPFLAGS",
+	"LDFLAGS",
+	"OPENSSL_ROOT_DIR",
 }
 
 func envVarsForInstallDir(rel string) []string {
@@ -117,6 +121,38 @@ func envVarsForInstallDir(rel string) []string {
 	}
 
 	return nil
+}
+
+func streamCommand(cmd *exec.Cmd, verbose bool, onLine func(string)) error {
+	if verbose {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	}
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		return err
+	}
+	cmd.Stdout = writer
+	cmd.Stderr = writer
+	if err := cmd.Start(); err != nil {
+		writer.Close()
+		reader.Close()
+		return err
+	}
+	linesDone := make(chan struct{})
+	go func() {
+		scanner := bufio.NewScanner(reader)
+		for scanner.Scan() {
+			onLine(scanner.Text())
+		}
+		close(linesDone)
+	}()
+	err = cmd.Wait()
+	writer.Close()
+	<-linesDone
+	reader.Close()
+	return err
 }
 
 func hasInstallLayout(dir string) bool {
@@ -206,6 +242,10 @@ func RegenerateEnvFile(state *InstalledState) error {
 		"DYLD_LIBRARY_PATH": {},
 		"CPATH":             {},
 		"PKG_CONFIG_PATH":   {},
+		"CMAKE_PREFIX_PATH": {},
+		"CPPFLAGS":          {},
+		"LDFLAGS":           {},
+		"OPENSSL_ROOT_DIR":  {},
 	}
 
 	for pkgName := range state.Packages {
@@ -215,6 +255,18 @@ func RegenerateEnvFile(state *InstalledState) error {
 		}
 		for envVar, pkgPaths := range collectEnvPathsFromPackage(pkgDir) {
 			collected[envVar] = append(collected[envVar], pkgPaths...)
+		}
+		collected["CMAKE_PREFIX_PATH"] = append(collected["CMAKE_PREFIX_PATH"], pkgDir)
+		if pkgName == "openssl" {
+			collected["OPENSSL_ROOT_DIR"] = []string{pkgDir}
+		}
+		if _, err := os.Stat(filepath.Join(pkgDir, "include")); err == nil {
+			collected["CPPFLAGS"] = append(collected["CPPFLAGS"], "-I"+filepath.Join(pkgDir, "include"))
+		}
+		for _, libDir := range []string{"lib", "lib64"} {
+			if _, err := os.Stat(filepath.Join(pkgDir, libDir)); err == nil {
+				collected["LDFLAGS"] = append(collected["LDFLAGS"], "-L"+filepath.Join(pkgDir, libDir))
+			}
 		}
 	}
 
@@ -229,7 +281,15 @@ func RegenerateEnvFile(state *InstalledState) error {
 		if len(paths) == 0 {
 			continue
 		}
+		if envVar == "CPPFLAGS" || envVar == "LDFLAGS" {
+			sb.WriteString(fmt.Sprintf("export %s=\"%s ${%s}\"\n", envVar, strings.Join(paths, " "), envVar))
+			continue
+		}
 		joined := strings.Join(paths, ":")
+		if envVar == "OPENSSL_ROOT_DIR" {
+			sb.WriteString(fmt.Sprintf("export %s=\"%s\"\n", envVar, joined))
+			continue
+		}
 		sb.WriteString(fmt.Sprintf("export %s=\"%s:$%s\"\n", envVar, joined, envVar))
 	}
 
@@ -311,8 +371,7 @@ func checkBuildSystem(buildSystem string) error {
 }
 
 func runScript(scriptContent, workingDir string) error {
-	_, err := runScriptWithEnv(scriptContent, workingDir, false, "", true)
-	return err
+	return runScriptWithEnv(scriptContent, workingDir, false, "", true, func(string) {})
 }
 
 func aluminiumEnvironment() []string {
@@ -337,7 +396,7 @@ func aluminiumEnvironment() []string {
 	return values
 }
 
-func runScriptWithEnv(scriptContent, workingDir string, forge bool, installDir string, verbose bool) ([]string, error) {
+func runScriptWithEnv(scriptContent, workingDir string, forge bool, installDir string, verbose bool, onLine func(string)) error {
 	scriptPath := filepath.Join(workingDir, "run_setup.sh")
 	const envSource = `if [ -f "$HOME/.aluminium/env" ]; then
   source "$HOME/.aluminium/env"
@@ -345,29 +404,17 @@ fi
 `
 	err := os.WriteFile(scriptPath, []byte("#!/bin/bash\n"+envSource+scriptContent+"\n"), 0755)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer os.Remove(scriptPath)
 
 	cmd := exec.Command("bash", "run_setup.sh")
 	cmd.Dir = workingDir
-	var output bytes.Buffer
-	if verbose {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-	} else {
-		cmd.Stdout = &output
-		cmd.Stderr = &output
-	}
 	cmd.Env = aluminiumEnvironment()
 	if forge {
 		cmd.Env = append(cmd.Env, "ALUMINIUM_INSTALL_DIR="+installDir)
 	}
-	err = cmd.Run()
-	if output.Len() == 0 {
-		return nil, err
-	}
-	return strings.Split(strings.TrimRight(output.String(), "\n"), "\n"), err
+	return streamCommand(cmd, verbose, onLine)
 }
 
 func extractTarGz(gzipStream io.Reader, destDir string) error {
@@ -455,34 +502,27 @@ func downloadAndExtractSourceArchive(sourceURL, destDir string) error {
 	return extractTarGz(file, destDir)
 }
 
-func prepareSourceWorkspace(sourceURL, workspaceDir string, verbose bool) (string, []string, error) {
+func prepareSourceWorkspace(sourceURL, workspaceDir string, verbose bool, onLine func(string)) (string, error) {
 	if isArchiveSourceURL(sourceURL) {
 		if err := downloadAndExtractSourceArchive(sourceURL, workspaceDir); err != nil {
-			return "", nil, err
+			return "", err
 		}
 		entries, err := os.ReadDir(workspaceDir)
 		if err != nil {
-			return "", nil, err
+			return "", err
 		}
 		if len(entries) == 1 && entries[0].IsDir() {
-			return filepath.Join(workspaceDir, entries[0].Name()), nil, nil
+			return filepath.Join(workspaceDir, entries[0].Name()), nil
 		}
-		return workspaceDir, nil, nil
+		return workspaceDir, nil
 	}
 
 	cmd := exec.Command("git", "clone", sourceURL, workspaceDir)
-	var output bytes.Buffer
-	if verbose {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-	} else {
-		cmd.Stdout = &output
-		cmd.Stderr = &output
+	cmd.Env = aluminiumEnvironment()
+	if err := streamCommand(cmd, verbose, onLine); err != nil {
+		return "", err
 	}
-	if err := cmd.Run(); err != nil {
-		return "", strings.Split(strings.TrimRight(output.String(), "\n"), "\n"), err
-	}
-	return workspaceDir, strings.Split(strings.TrimRight(output.String(), "\n"), "\n"), nil
+	return workspaceDir, nil
 }
 
 type buildProgress struct {
@@ -504,16 +544,17 @@ func newBuildProgress() *buildProgress {
 func (p *buildProgress) render() {
 	const innerWidth = 68
 	lines := []string{
-		"+------------------------------------------------------------------+",
-		p.panelLine("Source build", innerWidth),
+		p.style("+------------------------------------------------------------------+", "36"),
+		p.style(p.panelLine("Source build", innerWidth), "1;36"),
 		p.panelLine("", innerWidth),
 	}
 	for index, step := range p.steps {
-		lines = append(lines, p.panelLine(fmt.Sprintf("[%s] %s", p.statuses[index], step), innerWidth))
+		statusColor := map[string]string{"x": "32", ".": "33", "!": "31", " ": "90"}[p.statuses[index]]
+		lines = append(lines, p.style(p.panelLine(fmt.Sprintf("[%s] %s", p.statuses[index], step), innerWidth), statusColor))
 	}
 	lines = append(lines,
 		p.panelLine("", innerWidth),
-		p.panelLine("Latest logs (last 5 lines)", innerWidth),
+		p.style(p.panelLine("Latest logs (last 5 lines)", innerWidth), "1;36"),
 	)
 	for index := 0; index < 5; index++ {
 		line := ""
@@ -522,13 +563,20 @@ func (p *buildProgress) render() {
 		}
 		lines = append(lines, p.panelLine(line, innerWidth))
 	}
-	lines = append(lines, "+------------------------------------------------------------------+")
+	lines = append(lines, p.style("+------------------------------------------------------------------+", "36"))
 
 	if p.tty && p.lastRenderRows > 0 {
 		fmt.Printf("\033[%dA\033[J", p.lastRenderRows)
 	}
 	fmt.Println(strings.Join(lines, "\n"))
 	p.lastRenderRows = len(lines)
+}
+
+func (p *buildProgress) style(value, code string) string {
+	if !p.tty {
+		return value
+	}
+	return "\033[" + code + "m" + value + "\033[0m"
 }
 
 func (p *buildProgress) panelLine(content string, width int) string {
@@ -654,8 +702,7 @@ func InstallSinglePackage(node *graph.Node, api *client.APIClient, cfg *config.C
 	progress.show()
 	progress.start(0)
 	if node.BuildSetup.SourceCodeURL != "" {
-		preparedDir, output, err := prepareSourceWorkspace(node.BuildSetup.SourceCodeURL, buildDir, verbose)
-		progress.log(output)
+		preparedDir, err := prepareSourceWorkspace(node.BuildSetup.SourceCodeURL, buildDir, verbose, func(line string) { progress.log([]string{line}) })
 		if err != nil {
 			progress.log([]string{fmt.Sprintf("Warning: failed to prepare source workspace: %v. Proceeding to run build script in workspace.", err)})
 		} else {
@@ -666,8 +713,7 @@ func InstallSinglePackage(node *graph.Node, api *client.APIClient, cfg *config.C
 
 	if node.BuildSetup.BuildScript != "" {
 		progress.start(1)
-		output, err := runScriptWithEnv(node.BuildSetup.BuildScript, workingDir, node.Forge, destDir, verbose)
-		progress.log(output)
+		err := runScriptWithEnv(node.BuildSetup.BuildScript, workingDir, node.Forge, destDir, verbose, func(line string) { progress.log([]string{line}) })
 		if err != nil {
 			progress.log([]string{fmt.Sprintf("Error: %v", err)})
 			progress.fail(1)
@@ -678,8 +724,7 @@ func InstallSinglePackage(node *graph.Node, api *client.APIClient, cfg *config.C
 
 	if node.BuildSetup.InstallScript != "" {
 		progress.start(2)
-		output, err := runScriptWithEnv(node.BuildSetup.InstallScript, workingDir, node.Forge, destDir, verbose)
-		progress.log(output)
+		err := runScriptWithEnv(node.BuildSetup.InstallScript, workingDir, node.Forge, destDir, verbose, func(line string) { progress.log([]string{line}) })
 		if err != nil {
 			progress.log([]string{fmt.Sprintf("Error: %v", err)})
 			progress.fail(2)
