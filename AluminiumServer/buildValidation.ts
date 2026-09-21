@@ -1,9 +1,36 @@
 const VALID_BUILD_SYSTEMS = ['cmake', 'make', 'meson', 'custom', 'none'] as const;
 const PACKAGE_NAME_REGEX = /^[a-zA-Z0-9._-]{1,100}$/;
 const PACKAGE_VERSION_REGEX = /^[a-zA-Z0-9.+_-]{1,100}$/;
-const SAFE_BUILD_FLAGS_REGEX = /^[A-Za-z0-9 _./=+-]{0,200}$/;
+
+// Allow common build flag chars including $, (), so callers can write
+// things like --with-openssl=$HOME/... or -DFOO=$(shell ...)
+const SAFE_BUILD_FLAGS_REGEX = /^[A-Za-z0-9 _./=+()$-]{0,500}$/;
+
 const SAFE_SOURCE_URL_REGEX = /^(https?:\/\/|git@|ssh:\/\/|git:\/\/)[A-Za-z0-9._~:/?#[\]@!$&'()*+,;=%-]+$/i;
-const SHELL_META_REGEX = /[;&|`$<>\\]/;
+
+// Patterns that are genuinely dangerous in a sandboxed build script context.
+// We block specific escalation constructs rather than banning all shell syntax,
+// since real build scripts legitimately need &&, $VAR, pipes, redirects, etc.
+const DANGEROUS_SCRIPT_PATTERNS: RegExp[] = [
+  // eval / exec builtins allow arbitrary code execution past any filtering
+  /\beval\b/,
+  /\bexec\b/,
+  // Prevent writing to sensitive system directories
+  />\s*\/etc\//,
+  />\s*\/usr\//,
+  />\s*\/bin\//,
+  />\s*\/sbin\//,
+  />\s*\/lib\//,
+  />\s*\/System\//,
+  // Prevent sourcing arbitrary files from outside the Aluminium tree
+  /\bsource\s+(?!\$HOME\/\.aluminium)/,
+  /\.\s+(?!\$HOME\/\.aluminium)/,
+  // curl/wget piped directly into a shell interpreter
+  /\b(?:curl|wget)\b.*\|\s*(?:bash|sh|zsh|python|ruby|perl|node)\b/,
+  // Prevent sudo / su escalation
+  /\bsudo\b/,
+  /\bsu\s/,
+];
 
 export function validatePackageName(value: unknown): value is string {
   return typeof value === 'string' && PACKAGE_NAME_REGEX.test(value);
@@ -18,7 +45,14 @@ export function validateBuildFlags(value: unknown): value is string {
 }
 
 export function validateCustomScript(value: unknown): value is string {
-  return typeof value === 'string' && value.length <= 20000 && !SHELL_META_REGEX.test(value);
+  if (typeof value !== 'string') return false;
+  if (value.length > 20000) return false;
+
+  for (const pattern of DANGEROUS_SCRIPT_PATTERNS) {
+    if (pattern.test(value)) return false;
+  }
+
+  return true;
 }
 
 export function validateSourceDir(value: unknown): value is string {
