@@ -44,9 +44,10 @@ export function validateBuildFlags(value: unknown): value is string {
   return value === undefined || (typeof value === 'string' && SAFE_BUILD_FLAGS_REGEX.test(value));
 }
 
-export function validateCustomScript(value: unknown): value is string {
+export function validateCustomScript(value: unknown, allowUnrestricted: boolean = false): boolean {
   if (typeof value !== 'string') return false;
   if (value.length > 20000) return false;
+  if (allowUnrestricted) return true;
 
   for (const pattern of DANGEROUS_SCRIPT_PATTERNS) {
     if (pattern.test(value)) return false;

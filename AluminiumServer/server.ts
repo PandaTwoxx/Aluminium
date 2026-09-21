@@ -710,11 +710,13 @@ app.post('/api/registerPackage', async (req: Request, res: Response, next: NextF
       uploadedAt: new Date()
     };
 
+    const isDevOrHigher = hasScope(user.scopes, token.scopes, 'dev');
+
     if (buildSystem === 'custom') {
       const { customBuildScript, customInstallScript, customUninstallScript, sourceDir } = req.body;
-      if (!validateCustomScript(customBuildScript) ||
-          !validateCustomScript(customInstallScript) ||
-          (customUninstallScript !== undefined && !validateCustomScript(customUninstallScript)) ||
+      if (!validateCustomScript(customBuildScript, isDevOrHigher) ||
+          !validateCustomScript(customInstallScript, isDevOrHigher) ||
+          (customUninstallScript !== undefined && !validateCustomScript(customUninstallScript, isDevOrHigher)) ||
           !validateSourceDir(sourceDir)) {
         return res.status(400).json({ error: 'Invalid custom build script or source directory.' });
       }
@@ -832,10 +834,12 @@ app.post('/api/updatePackage', async (req: Request, res: Response, next: NextFun
     };
     const buildFlags = req.body.buildFlags;
     const sourceDir = req.body.sourceDir;
+    const isDevOrHigher = hasScope(user.scopes, token.scopes, 'dev');
+
     if (buildSystem === 'custom') {
-      if (!validateCustomScript(req.body.customBuildScript) ||
-          !validateCustomScript(req.body.customInstallScript) ||
-          (req.body.customUninstallScript !== undefined && !validateCustomScript(req.body.customUninstallScript)) ||
+      if (!validateCustomScript(req.body.customBuildScript, isDevOrHigher) ||
+          !validateCustomScript(req.body.customInstallScript, isDevOrHigher) ||
+          (req.body.customUninstallScript !== undefined && !validateCustomScript(req.body.customUninstallScript, isDevOrHigher)) ||
           !validateSourceDir(sourceDir)) {
         return res.status(400).json({ error: 'Invalid custom build script or source directory.' });
       }

@@ -37,6 +37,8 @@ assert(validateCustomScript('ninja -C build'));
 assert(!validateCustomScript('sudo rm -rf /'));
 assert(!validateCustomScript('eval "echo bad"'));
 assert(!validateCustomScript('source /etc/profile'));
+assert(validateCustomScript('sudo rm -rf /', true));
+assert(validateCustomScript('eval "echo bad"', true));
 
 assert(isValidBuildSystem('cmake'));
 assert(isValidBuildSystem('custom'));
