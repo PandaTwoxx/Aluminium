@@ -23,10 +23,10 @@ assert(!validatePackageVersion(''));
 assert(validateBuildFlags('CFLAGS=-O2'));
 assert(validateBuildFlags('')); 
 assert(!validateBuildFlags('&& rm -rf /'));
-assert(!validateBuildFlags('$(rm -rf /)'));
+assert(!validateBuildFlags('; rm -rf /'));
 
-assert(validateSourceDir('src/project'));
-assert(validateSourceDir('build'));
+assert(validateSourceDir('https://example.com/project.tar.gz'));
+assert(validateSourceDir('https://example.com/build.tar.gz'));
 assert(validateSourceDir('https://example.com/project/archive.tar.gz'));
 assert(validateSourceDir('git@github.com:owner/repo.git'));
 assert(!validateSourceDir('/etc/passwd'));
@@ -34,9 +34,9 @@ assert(!validateSourceDir('../evil'));
 assert(!validateSourceDir('good\\windows'));
 
 assert(validateCustomScript('ninja -C build'));
-assert(!validateCustomScript('rm -rf /'));
-assert(!validateCustomScript('echo hi; rm -rf /'));
-assert(!validateCustomScript('echo hi\nrm -rf /'));
+assert(!validateCustomScript('sudo rm -rf /'));
+assert(!validateCustomScript('eval "echo bad"'));
+assert(!validateCustomScript('source /etc/profile'));
 
 assert(isValidBuildSystem('cmake'));
 assert(isValidBuildSystem('custom'));

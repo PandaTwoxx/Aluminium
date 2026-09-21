@@ -711,13 +711,15 @@ app.post('/api/registerPackage', async (req: Request, res: Response, next: NextF
     };
 
     if (buildSystem === 'custom') {
-      const { customBuildScript, customInstallScript, customUninstallScript } = req.body;
+      const { customBuildScript, customInstallScript, customUninstallScript, sourceDir } = req.body;
       if (!validateCustomScript(customBuildScript) ||
           !validateCustomScript(customInstallScript) ||
-          (customUninstallScript !== undefined && !validateCustomScript(customUninstallScript))) {
-        return res.status(400).json({ error: 'Invalid custom build script.' });
+          (customUninstallScript !== undefined && !validateCustomScript(customUninstallScript)) ||
+          !validateSourceDir(sourceDir)) {
+        return res.status(400).json({ error: 'Invalid custom build script or source directory.' });
       }
       packagePayload.buildSetup = {
+        sourceCodeUrl: typeof sourceDir === 'string' ? sourceDir : '',
         buildScript: customBuildScript,
         installScript: customInstallScript,
         uninstallScript: customUninstallScript
@@ -833,10 +835,12 @@ app.post('/api/updatePackage', async (req: Request, res: Response, next: NextFun
     if (buildSystem === 'custom') {
       if (!validateCustomScript(req.body.customBuildScript) ||
           !validateCustomScript(req.body.customInstallScript) ||
-          (req.body.customUninstallScript !== undefined && !validateCustomScript(req.body.customUninstallScript))) {
-        return res.status(400).json({ error: 'Invalid custom build script.' });
+          (req.body.customUninstallScript !== undefined && !validateCustomScript(req.body.customUninstallScript)) ||
+          !validateSourceDir(sourceDir)) {
+        return res.status(400).json({ error: 'Invalid custom build script or source directory.' });
       }
       update.buildSetup = {
+        sourceCodeUrl: typeof sourceDir === 'string' ? sourceDir : '',
         buildScript: req.body.customBuildScript,
         installScript: req.body.customInstallScript,
         uninstallScript: req.body.customUninstallScript || '',
