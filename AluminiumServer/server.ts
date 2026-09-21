@@ -873,7 +873,12 @@ app.post('/api/updatePackage', async (req: Request, res: Response, next: NextFun
       delete update.buildSetup;
     }
 
-    await packages.updateOne({ _id: existing._id }, { $set: update, $unset: { buildSetup: update.buildSetup ? '' : 1 } });
+    if (update.buildSetup !== undefined) {
+      await packages.updateOne({ _id: existing._id }, { $set: update });
+    } else {
+      const { buildSetup: _omit, ...updateWithoutBuildSetup } = update as any;
+      await packages.updateOne({ _id: existing._id }, { $set: updateWithoutBuildSetup, $unset: { buildSetup: 1 } });
+    }
     return res.status(200).json({ message: 'Package updated successfully.' });
   } catch (error) {
     next(error);
