@@ -714,11 +714,19 @@ app.post('/api/registerPackage', async (req: Request, res: Response, next: NextF
 
     if (buildSystem === 'custom') {
       const { customBuildScript, customInstallScript, customUninstallScript, sourceDir } = req.body;
+      if (typeof customBuildScript !== 'string' || customBuildScript.trim() === '') {
+        return res.status(400).json({ error: 'Custom build script is required when build system is custom.' });
+      }
+      if (typeof customInstallScript !== 'string' || customInstallScript.trim() === '') {
+        return res.status(400).json({ error: 'Custom install script is required when build system is custom.' });
+      }
       if (!validateCustomScript(customBuildScript, isDevOrHigher) ||
           !validateCustomScript(customInstallScript, isDevOrHigher) ||
-          (customUninstallScript !== undefined && !validateCustomScript(customUninstallScript, isDevOrHigher)) ||
-          !validateSourceDir(sourceDir)) {
-        return res.status(400).json({ error: 'Invalid custom build script or source directory.' });
+          (customUninstallScript !== undefined && !validateCustomScript(customUninstallScript, isDevOrHigher))) {
+        return res.status(400).json({ error: 'Invalid custom build script.' });
+      }
+      if (!validateSourceDir(sourceDir)) {
+        return res.status(400).json({ error: 'Invalid source directory URL.' });
       }
       packagePayload.buildSetup = {
         sourceCodeUrl: typeof sourceDir === 'string' ? sourceDir : '',
@@ -837,11 +845,20 @@ app.post('/api/updatePackage', async (req: Request, res: Response, next: NextFun
     const isDevOrHigher = hasScope(user.scopes, token.scopes, 'dev');
 
     if (buildSystem === 'custom') {
-      if (!validateCustomScript(req.body.customBuildScript, isDevOrHigher) ||
-          !validateCustomScript(req.body.customInstallScript, isDevOrHigher) ||
-          (req.body.customUninstallScript !== undefined && !validateCustomScript(req.body.customUninstallScript, isDevOrHigher)) ||
-          !validateSourceDir(sourceDir)) {
-        return res.status(400).json({ error: 'Invalid custom build script or source directory.' });
+      const { customBuildScript, customInstallScript, customUninstallScript } = req.body;
+      if (typeof customBuildScript !== 'string' || customBuildScript.trim() === '') {
+        return res.status(400).json({ error: 'Custom build script is required when build system is custom.' });
+      }
+      if (typeof customInstallScript !== 'string' || customInstallScript.trim() === '') {
+        return res.status(400).json({ error: 'Custom install script is required when build system is custom.' });
+      }
+      if (!validateCustomScript(customBuildScript, isDevOrHigher) ||
+          !validateCustomScript(customInstallScript, isDevOrHigher) ||
+          (customUninstallScript !== undefined && !validateCustomScript(customUninstallScript, isDevOrHigher))) {
+        return res.status(400).json({ error: 'Invalid custom build script.' });
+      }
+      if (!validateSourceDir(sourceDir)) {
+        return res.status(400).json({ error: 'Invalid source directory URL.' });
       }
       update.buildSetup = {
         sourceCodeUrl: typeof sourceDir === 'string' ? sourceDir : '',
