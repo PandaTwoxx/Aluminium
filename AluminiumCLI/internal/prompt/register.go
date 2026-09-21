@@ -128,16 +128,29 @@ func PackageRegister(defaults PackageRegisterInput) (*PackageRegisterInput, erro
 		result.Dependencies = nil
 	}
 
+	if result.BuildSystem == "custom" {
+		if strings.TrimSpace(result.CustomBuildScript) == "" {
+			return nil, fmt.Errorf("custom build script is required when build system is 'custom'")
+		}
+		if strings.TrimSpace(result.CustomInstallScript) == "" {
+			return nil, fmt.Errorf("custom install script is required when build system is 'custom'")
+		}
+	}
+
 	fmt.Println()
-	fmt.Printf("  Name:         %s\n", result.Name)
-	fmt.Printf("  Version:      %s\n", result.Version)
-	fmt.Printf("  Build system: %s\n", result.BuildSystem)
-	fmt.Printf("  Forge:        %t\n", result.Forge)
+	fmt.Printf("  Name:           %s\n", result.Name)
+	fmt.Printf("  Version:        %s\n", result.Version)
+	fmt.Printf("  Build system:   %s\n", result.BuildSystem)
+	fmt.Printf("  Forge:          %t\n", result.Forge)
 	if result.SourceDir != "" {
-		fmt.Printf("  Source:       %s\n", result.SourceDir)
+		fmt.Printf("  Source:         %s\n", result.SourceDir)
 	}
 	if len(result.Dependencies) > 0 {
-		fmt.Printf("  Dependencies: %s\n", strings.Join(result.Dependencies, ", "))
+		fmt.Printf("  Dependencies:   %s\n", strings.Join(result.Dependencies, ", "))
+	}
+	if result.BuildSystem == "custom" {
+		fmt.Printf("  Build script:   %s\n", result.CustomBuildScript)
+		fmt.Printf("  Install script: %s\n", result.CustomInstallScript)
 	}
 	fmt.Println()
 
