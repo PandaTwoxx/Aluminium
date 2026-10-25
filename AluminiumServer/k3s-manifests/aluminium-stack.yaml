@@ -71,7 +71,7 @@ spec:
     spec:
       containers:
         - name: aluminium-server
-          image: ghcr.io/pandatwoxx/aluminium/aluminium-server:ff2bc06bf33956025f5280bf4fcfbcb5d038d5bc
+          image: ghcr.io/pandatwoxx/aluminium/aluminium-server:9cffb032e47e0849fb2e11d7e0586f265a13479e
           imagePullPolicy: Always
           ports:
             - containerPort: 3000
